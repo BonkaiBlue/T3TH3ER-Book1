@@ -3,15 +3,19 @@
 A low-poly, comic-book first-person traversal / stealth / brawler for mobile browsers.
 Swing, free-run, climb, wall-run, skate, bike — then take down goons Hitman-style from the rooftops.
 
-**Launch:** open **`Boot.html`**. No server, no install, no internet needed.
+## ▶ Play now
+
+**https://bonkaiblue.github.io/T3TH3ER-Book1/** — opens in any phone or desktop browser.
+On Android: open it in Chrome, then ⋮ → **Add to Home screen** for a full-screen app icon.
 
 ## Running it
 
 | Where | How |
 |---|---|
-| Desktop (Chrome/Edge/Firefox) | Double-click `Boot.html`. Click the game once to capture the mouse. |
-| Android — easiest | Host the folder (GitHub Pages, itch.io "HTML" upload, Netlify drop). `index.html` redirects to `Boot.html`, so itch/Pages pick it up automatically. |
-| Android — fully offline | Unzip, then in **Termux** (`pkg install python`, `termux-setup-storage` once): `cd ~/storage/downloads/<unzipped folder> && python -m http.server 8080` → open `http://localhost:8080/Boot.html` in Chrome. (Android Chrome won't open local `file://` pages directly.) Then ⋮ → *Add to Home screen* for a full-screen app icon. |
+| Any browser | Use the **Play now** link above (hosted free on GitHub Pages from this repo). |
+| Desktop, offline | Download the repo (**Code → Download ZIP**), unzip, double-click `Boot.html`. Click the game once to capture the mouse. |
+| Android, offline | In **Termux** (`pkg install python` once): `cd` into the game folder, run `python -m http.server 8080`, then open `http://localhost:8080/Boot.html` in Chrome. (Android Chrome won't open local `file://` pages directly.) |
+| Android APK | Planned: an automatic APK build via GitHub Actions. |
 | Gamepad | Any standard Bluetooth/USB pad works (PS/Xbox layout). |
 
 Portrait and landscape are both supported — rotate any time; the controller overlay re-lays itself out.
@@ -59,3 +63,18 @@ cd source && npm install && node build.mjs      # writes ../game/tether.js
 ```
 
 See `docs/MODDING.md` to add suits, districts, gadgets, crimes, side jobs, chapters and dialogue without touching engine code.
+
+## Updating the live game (from Termux)
+
+GitHub Pages republishes automatically about a minute after every push to `main`:
+
+```
+cd ~/projects/T3TH3ER-Book1
+git add .
+git commit -m "describe what changed"
+git push
+```
+
+## Changelog
+
+- **v1.0** (2026-10-12) — Book One, Chapters 1–4, Free Roam, side jobs, mod packs. Published to GitHub and GitHub Pages.
