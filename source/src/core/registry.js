@@ -6,8 +6,8 @@
 import { deepMerge } from './util.js';
 import { bus } from './events.js';
 
-const CATEGORIES = ['cities', 'skins', 'gadgets', 'rides', 'chapters', 'sideQuests', 'crimes', 'npcTypes', 'palettes', 'collectibles'];
-const MAPS = ['dialogues', 'strings', 'speakers'];
+const CATEGORIES = ['cities', 'skins', 'gadgets', 'rides', 'chapters', 'sideQuests', 'crimes', 'npcTypes', 'palettes', 'collectibles', 'upgrades', 'recipes', 'news', 'suitMods'];
+const MAPS = ['dialogues', 'strings', 'speakers', 'mapArt'];
 
 export class Registry {
   constructor() {

@@ -7,7 +7,7 @@ import { comicMaterial } from '../render/materials.js';
 
 export class Activities {
   constructor(game) {
-    this.game = game; this.crime = null; this.crimeTimer = 20; this.givers = []; this.pages = []; this.enabled = false;
+    this.game = game; this.crime = null; this.crimeTimer = 20; this.givers = []; this.pages = []; this.caches = []; this.enabled = false;
     bus.on('npc:talk', (e) => this.onTalk(e.npc));
   }
   setup(cityId) {
@@ -24,6 +24,7 @@ export class Activities {
     }
     // golden age pages (persistent collectibles)
     const spots = g.world.data.collectibleSpots; const R = rng(hashStr(cityId) ^ 0x51);
+    this.setupWorldStuff();
     const def = g.registry.get('collectibles', 'pages'); const per = def ? def.perCity : 20;
     const chosen = [...spots].sort(() => R() - 0.5).slice(0, per);
     const geo = new GeoBuilder(); geo.cbox(0, 0, 0, 0.8, 1.1, 0.06, C('#fff4dc')); geo.cbox(0, 0.2, 0.035, 0.6, 0.5, 0.01, C('#e4573d')); geo.cbox(0, -0.3, 0.035, 0.6, 0.15, 0.01, C('#2a9d9a'));
@@ -33,8 +34,29 @@ export class Activities {
       const m = new THREE.Mesh(pg, mat); m.position.set(s[0], s[1], s[2]); g.world.dynamic.add(m); this.pages.push({ id, m });
     });
   }
+  // Supply caches (line-fluid refills), subway fast-travel stairs and the rooftop hatch home.
+  setupWorldStuff() {
+    const g = this.game, d = g.world.data; if (!d || d.interior) return;
+    const cb = new GeoBuilder(); cb.cbox(0, 0.35, 0, 1.1, 0.7, 0.8, C('#2a9d9a')); cb.cbox(0, 0.72, 0, 1.15, 0.08, 0.85, C('#f2c14e')); cb.cbox(0, 0.4, 0.41, 0.5, 0.25, 0.02, C('#f6f1df'));
+    const geo = cb.build(), mat = comicMaterial({ atlas: false, emissive: 0.35 });
+    for (const sp of d.cacheSpots || []) {
+      const m = new THREE.Mesh(geo, mat); m.position.set(sp[0], sp[1], sp[2]); g.world.dynamic.add(m);
+      this.caches.push({ m, pos: m.position, cool: 0 });
+    }
+    for (const sw of d.subways || []) {
+      g.combat.addInteractable({ pos: new THREE.Vector3(sw[0], sw[1], sw[2]), label: 'SUBWAY', radius: 2.6, onUse: () => {
+        if (!g.home.canTravelNow()) return; g.audio.play('bell', { vol: 0.25, rate: 2 }); g.pause(); g.menus.go(() => g.menus.worldMap(true, true));
+      } });
+    }
+    const home = d.landmarks && d.landmarks.home;
+    if (home && home.hatch) {
+      g.combat.addInteractable({ pos: home.hatch.clone(), label: 'GO HOME', radius: 2.8, onUse: () => g.home.enter() });
+      this.homeBeacon = home.hatch;
+    }
+  }
   clear() {
     const g = this.game;
+    for (const c of this.caches) g.world.dynamic.remove(c.m); this.caches = []; this.homeBeacon = null;
     for (const n of this.givers) g.npcs.remove(n); this.givers = [];
     for (const p of this.pages) g.world.dynamic.remove(p.m); this.pages = [];
     this.endCrime(false);
@@ -60,6 +82,14 @@ export class Activities {
   update(dt) {
     const g = this.game, p = g.player;
     if (this.crime) this.updateCrime(dt);
+    for (const c of this.caches) {
+      if (c.cool > 0) { c.cool -= dt; c.m.visible = c.cool <= 0; continue; }
+      c.m.rotation.y += dt * 0.8;
+      if (c.pos.distanceTo(p.pos) < 2.2) {
+        const got = g.home.refill(30); c.cool = 180; c.m.visible = false;
+        g.audio.play('collect'); g.combat.word('REFILL!', c.pos); g.hud.toast(`Supply cache: +${Math.round(got)} line fluid, cartridges full.`, 1.8);
+      }
+    }
     if (!this.enabled) return;
     // pages
     for (let i = this.pages.length - 1; i >= 0; i--) {

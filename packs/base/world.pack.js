@@ -14,44 +14,101 @@ TetherMod.register({
   palettes: [
     { id: 'sunset', sun: '#fff0c8', sky: '#f4c062', ground: '#6a543c', fog: '#e3ad4f', skyTop: '#d99a3a', skyMid: '#eeb64e', sunDisc: '#ffd35a', cloud: '#f8dfa8', fogNear: 80, fogFar: 300, sunDir: [-0.55, 0.45, 0.6] },
     { id: 'dusk', sun: '#ffc9a0', sky: '#c0809a', ground: '#4a3a4a', fog: '#b9768a', skyTop: '#4a3a7a', skyMid: '#d98a7a', sunDisc: '#ffb45a', cloud: '#e8a8a0', fogNear: 70, fogFar: 270, sunDir: [-0.6, 0.25, 0.5] },
-    { id: 'night', sun: '#8aa0d8', sky: '#3a4a7a', ground: '#1a1a2a', fog: '#1e2440', skyTop: '#0e1228', skyMid: '#2a3260', sunDisc: '#f2ead0', sunSize: 0.03, cloud: '#3a4470', fogNear: 55, fogFar: 230, sunDir: [0.4, 0.6, -0.3] },
+    { id: 'night', sun: '#a8b8e8', sky: '#4a5a8a', ground: '#2a2a3a', fog: '#26305a', skyTop: '#0e1228', skyMid: '#2a3260', sunDisc: '#f2ead0', sunSize: 0.03, cloud: '#3a4470', fogNear: 60, fogFar: 240, sunDir: [0.4, 0.6, -0.3] },
+    { id: 'day', sun: '#fffbea', sky: '#9fd0e0', ground: '#6a6050', fog: '#bfe0e6', skyTop: '#5fa8d0', skyMid: '#a8d8e6', sunDisc: '#fff4c0', cloud: '#ffffff', fogNear: 90, fogFar: 320, sunDir: [-0.3, 0.85, 0.35] },
+    { id: 'interior', sun: '#ffe8c0', sky: '#d9b88a', ground: '#4a3a2a', fog: '#1e2440', skyTop: '#0e1228', skyMid: '#2a3260', sunDisc: '#f2ead0', cloud: '#3a4470', fogNear: 40, fogFar: 90, sunDir: [0.3, 0.8, 0.4] },
     { id: 'foundry', sun: '#ffb070', sky: '#a06050', ground: '#2a1a14', fog: '#3a2018', skyTop: '#1a0e0a', skyMid: '#5a2a1a', sunDisc: '#ff7a2a', cloud: '#5a3020', fogNear: 18, fogFar: 70, sunDir: [-0.3, 0.8, 0.4] },
   ],
 
   cities: [
-    { id: 'midtown', name: 'Brasshaven — Midtown', short: 'MIDTOWN', kind: 'city', seed: 1938, palette: 'sunset', color: '#e4573d', map: [46, 42],
+    // Brasshaven island (a stylized, fictional take on a classic comic-book big city), south → north:
+    // Ledger District · Lantern Quarter · Midtown (+ Kettle's Row west) · Founders' Green · Gilded Heights (east) · Crownsend
+    // Across the Ironside Channel: Ironworks Docks. Local axes: -z north, +z south, -x west, +x east.
+    { id: 'midtown', name: 'Brasshaven — Midtown', short: 'MIDTOWN', kind: 'city', seed: 1938, palette: 'sunset', color: '#e4573d', map: [48, 54],
       blocks: [7, 7], blockSize: 44, street: 14, heights: { min: 10, max: 88, centerBias: 1.3 },
-      styles: [['deco', 3], ['brick', 3], ['office', 2], ['glass', 1.5], ['brownstone', 2]], parks: 0.07, plazas: 0.05, traffic: 18, peds: 36,
+      styles: [['deco', 3], ['brick', 3], ['office', 2], ['glass', 1.5], ['brownstone', 2], ['tenement', 1]], parks: 0.07, plazas: 0.05, traffic: 20, peds: 36, steam: 0.4,
       landmarks: [
         { id: 'clocktower', type: 'clocktower', block: [3, 3], name: 'Meridian Clock Tower', height: 78 },
         { id: 'rooftopGarden', type: 'rooftopGarden', block: [1, 4], name: 'Albright Rooftop Garden', height: 24 },
         { id: 'pawnshop', type: 'pawnshop', block: [4, 2], name: "Gus's Corner Pawn" },
         { id: 'bank', type: 'bank', block: [2, 1], name: 'First Brass Savings' },
         { id: 'klaxon', type: 'tower', block: [5, 4], name: 'Evening Klaxon Building', height: 112 },
-        { id: 'foundersPark', type: 'park', block: [2, 5], name: "Founders' Park" },
+        { id: 'foundersPark', type: 'park', block: [2, 5], name: "Founders' Square" },
       ],
-      bridge: { x: 0, length: 240, name: 'Brass Bay Bridge' },
-      description: 'The beating brass heart of the city: art-deco spires, the Meridian Clock Tower, and the Brass Bay Bridge. Tall, dense and perfect for swinging.',
+      bridge: { side: 'x1', x: 0, length: 240, name: 'Brass Bay Bridge' },
+      edges: { x0: { to: 'kettle', label: "Kettle's Row" }, x1: 'water', z0: { to: 'green', label: "Founders' Green" }, z1: { to: 'lantern', label: 'Lantern Quarter' } },
+      description: 'The beating brass heart of the city: art-deco spires, the Meridian Clock Tower, the Evening Klaxon and the Brass Bay Bridge. Tall, dense and perfect for swinging.',
       skyline: 'Tall & dense', crime: 'Moderate', bestFor: 'Swinging, story', arrivalThought: 'Midtown. Every rooftop is a handhold.' },
-    { id: 'docks', name: 'Ironworks Docks', short: 'DOCKS', kind: 'city', seed: 4412, palette: 'dusk', color: '#2a6f8a', map: [24, 70],
+    { id: 'ledger', name: 'The Ledger District', short: 'LEDGER', kind: 'city', seed: 1626, palette: 'day', color: '#2a6fd4', map: [33, 84],
+      blocks: [6, 5], blockSize: 40, street: 12, heights: { min: 30, max: 130, centerBias: 0.8 },
+      styles: [['glass', 3], ['deco', 3], ['stone', 2], ['office', 2]], parks: 0.03, plazas: 0.1, traffic: 14, peds: 34, steam: 0.5, subway: 0.35,
+      landmarks: [
+        { id: 'exchange', type: 'exchange', block: [2, 2], name: 'Brass Ledger Exchange', height: 36 },
+        { id: 'needleTower', type: 'tower', block: [4, 1], name: 'Sovereign Trust Tower', height: 150, style: 'nightglass', tiers: 3 },
+        { id: 'church', type: 'church', block: [1, 3], name: 'Old Trinity-on-the-Bay' },
+      ],
+      statue: { pos: [-60, 360], name: 'Lady Brass' },
+      edges: { z0: { to: 'lantern', label: 'Lantern Quarter' }, x0: 'water', x1: 'water', z1: 'water' },
+      description: 'Narrow canyon streets under the tallest towers in Brasshaven. Money never sleeps — neither do the crooks chasing it. Lady Brass watches from the bay.',
+      skyline: 'Super-tall canyons', crime: 'White-collar & heists', bestFor: 'Long swings, vertical play', arrivalThought: 'The Ledger. Glass canyons — swing deep, release high.' },
+    { id: 'lantern', name: 'Lantern Quarter', short: 'LANTERNS', kind: 'city', seed: 1889, palette: 'dusk', color: '#c0362c', map: [40, 68],
+      blocks: [6, 5], blockSize: 38, street: 12, heights: { min: 8, max: 34, centerBias: 0.6 },
+      styles: [['lantern', 4], ['tenement', 3], ['brick', 2], ['brownstone', 1]], parks: 0.04, plazas: 0.12, traffic: 10, peds: 46, steam: 0.3, lanternStrings: true,
+      landmarks: [
+        { id: 'gate', type: 'gate', block: [2, 2], name: 'Lantern Gate' },
+        { id: 'diner', type: 'diner', block: [4, 3], name: 'The Night Owl Diner' },
+      ],
+      edges: { z0: { to: 'midtown', label: 'Midtown' }, z1: { to: 'ledger', label: 'Ledger District' }, x0: 'water', x1: 'water' },
+      description: 'Low, crowded and colorful — paper lanterns strung across every street, noodle shops, fire escapes and night markets. Fewer anchors, great parkour.',
+      skyline: 'Low & crowded', crime: 'Street gangs, pickpockets', bestFor: 'Parkour, fire escapes', arrivalThought: 'Lantern Quarter. Smells like dumplings and trouble.' },
+    { id: 'kettle', name: "Kettle's Row", short: "KETTLE'S ROW", kind: 'city', seed: 1867, palette: 'dusk', color: '#8a5a44', map: [31, 45],
+      blocks: [5, 6], blockSize: 42, street: 13, heights: { min: 12, max: 48, centerBias: 0.7 },
+      styles: [['tenement', 4], ['brownstone', 3], ['brickdark', 3], ['warehouse', 1]], parks: 0.05, plazas: 0.03, traffic: 12, peds: 26, steam: 0.45,
+      landmarks: [
+        { id: 'home', type: 'home', block: [2, 3], name: "Okafor's Walk-up (HOME)" },
+        { id: 'kdiner', type: 'diner', block: [1, 1], name: 'Copper Kettle Diner' },
+        { id: 'kchurch', type: 'church', block: [3, 4], name: 'St. Brendan of the Docks' },
+      ],
+      edges: { x1: { to: 'midtown', label: 'Midtown' }, x0: 'water', z0: 'water', z1: 'water' },
+      description: 'Gritty tenements, steam vents and zig-zag fire escapes on the west side. Home turf — Dr. Okafor\'s old safehouse is here.',
+      skyline: 'Mid-rise tenements', crime: 'High', bestFor: 'Home base, stealth', arrivalThought: "Kettle's Row. Home, sort of." },
+    { id: 'green', name: "Founders' Green", short: "FOUNDERS' GREEN", kind: 'city', seed: 1857, palette: 'day', color: '#3a8a5a', map: [50, 37],
+      blocks: [5, 8], blockSize: 40, street: 13, heights: { min: 30, max: 90, centerBias: 0.2 },
+      styles: [['deco', 3], ['stone', 3], ['brownstone', 2], ['glass', 1]], parks: 0, plazas: 0.05, traffic: 12, peds: 40, megaPark: [1, 1, 3, 6],
+      edges: { z1: { to: 'midtown', label: 'Midtown' }, z0: { to: 'crownsend', label: 'Crownsend' }, x1: { to: 'gilded', label: 'Gilded Heights' }, x0: 'water' },
+      description: "The city's great green lung: lakes, the Founders' Keep, the Needle and a carousel, walled by grand old apartment towers. Swinging over the park takes skill — use the elder trees.",
+      skyline: 'Park + tower walls', crime: 'Low', bestFor: 'Sightseeing, tricks', arrivalThought: "Founders' Green. Not a lot to hang on to out there." },
+    { id: 'gilded', name: 'Gilded Heights', short: 'GILDED HTS', kind: 'city', seed: 7020, palette: 'night', color: '#c9a23a', map: [66, 27],
+      blocks: [6, 6], blockSize: 40, street: 14, heights: { min: 24, max: 120, centerBias: 1.0 },
+      styles: [['deco', 4], ['glass', 2], ['nightglass', 2], ['office', 1]], parks: 0.04, plazas: 0.12, traffic: 14, peds: 24,
+      landmarks: [
+        { id: 'spire', type: 'tower', block: [3, 2], name: 'Aurelian Spire', height: 140 },
+        { id: 'museum', type: 'museum', block: [1, 3], name: 'Brasshaven Museum of Wonders' },
+      ],
+      edges: { x0: { to: 'green', label: "Founders' Green" }, x1: 'water', z0: 'water', z1: 'water' },
+      description: 'Old money and new glass after dark, on the east side of the Green. The tallest skyline uptown — long, dizzying swings.',
+      skyline: 'Skyscrapers', crime: 'Low (but rich)', bestFor: 'Big swings, sightseeing', arrivalThought: 'Gilded Heights. Long falls, longer swings.' },
+    { id: 'crownsend', name: 'Crownsend', short: 'CROWNSEND', kind: 'city', seed: 1920, palette: 'sunset', color: '#6b3fa0', map: [59, 13],
+      blocks: [6, 5], blockSize: 42, street: 17, heights: { min: 10, max: 40, centerBias: 0.6 },
+      styles: [['brownstone', 4], ['brick', 2], ['tenement', 2], ['stone', 1]], parks: 0.08, plazas: 0.06, traffic: 14, peds: 40,
+      landmarks: [
+        { id: 'theater', type: 'theater', block: [2, 2], name: 'The Crown Theater' },
+        { id: 'cchurch', type: 'church', block: [4, 1], name: 'Crownsend Tabernacle' },
+      ],
+      edges: { z1: { to: 'green', label: "Founders' Green" }, x0: 'water', x1: 'water', z0: 'water' },
+      description: 'Wide avenues, proud brownstone rows and the marquee lights of the Crown Theater uptown. Music on every stoop.',
+      skyline: 'Brownstone rows', crime: 'Moderate', bestFor: 'Rides, side jobs', arrivalThought: 'Crownsend. Hear that trumpet?' },
+    { id: 'docks', name: 'Ironworks Docks', short: 'DOCKS', kind: 'city', seed: 4412, palette: 'dusk', color: '#2a6f8a', map: [74, 72],
       blocks: [6, 5], blockSize: 46, street: 16, heights: { min: 8, max: 34, centerBias: 0.6 },
-      styles: [['warehouse', 5], ['brick', 3], ['office', 1]], parks: 0.02, plazas: 0.0, traffic: 12, peds: 16,
+      styles: [['warehouse', 5], ['brick', 3], ['brickdark', 2], ['office', 1]], parks: 0.02, plazas: 0.0, traffic: 12, peds: 16,
       landmarks: [
         { id: 'yard1', type: 'warehouseYard', block: [1, 1], name: 'Pier 9 Yard' },
         { id: 'yard2', type: 'warehouseYard', block: [4, 3], name: 'Cutter & Sons Freight' },
         { id: 'gasworks', type: 'tower', block: [3, 2], name: 'Old Gasworks Stack', height: 64 },
       ],
-      description: 'Low warehouses, container stacks and cranes. Fewer swing points — free-running, riding and stealth rule here.',
+      description: 'Across the Ironside Channel: low warehouses, container stacks and cranes. Fewer swing points — free-running, riding and stealth rule here.',
       skyline: 'Low & sprawling', crime: 'High', bestFor: 'Stealth, rides, parkour', arrivalThought: 'The Docks. Fewer anchors. Keep your feet quick.' },
-    { id: 'gilded', name: 'Gilded Heights', short: 'GILDED HTS', kind: 'city', seed: 7020, palette: 'night', color: '#c9a23a', map: [72, 26],
-      blocks: [6, 6], blockSize: 40, street: 14, heights: { min: 24, max: 120, centerBias: 1.0 },
-      styles: [['deco', 4], ['glass', 3], ['office', 1]], parks: 0.04, plazas: 0.12, traffic: 14, peds: 24,
-      landmarks: [
-        { id: 'spire', type: 'tower', block: [3, 2], name: 'Aurelian Spire', height: 140 },
-        { id: 'museum', type: 'museum', block: [1, 3], name: 'Brasshaven Museum of Wonders' },
-      ],
-      description: 'Old money and new glass after dark. The tallest skyline in the region — long, dizzying swings.',
-      skyline: 'Skyscrapers', crime: 'Low (but rich)', bestFor: 'Big swings, sightseeing', arrivalThought: 'Gilded Heights. Long falls, longer swings.' },
+    { id: 'apartment', name: "Okafor's Walk-up", kind: 'interior', hidden: true, palette: 'interior', seed: 3 },
     { id: 'foundry', name: 'The Foundry', kind: 'facility', hidden: true, seed: 9, palette: 'foundry',
       segments: [
         { id: 'pods', type: 'pod_room', len: 15 },
@@ -95,6 +152,54 @@ TetherMod.register({
     { id: 'line', name: 'TETHER LINE', desc: 'Binds a goon (2 hits). Yanks fliers.', effect: 'bind', bind: 1, cost: 1, speed: 58, life: 0.9, color: '#e8f6f0', sound: 'thwip' },
     { id: 'pod', name: 'IMPACT POD', desc: 'Bursts into a sticky net. Area bind.', effect: 'aoe', bind: 2, radius: 3, cost: 2, speed: 34, gravity: 7, life: 1.6, color: '#5fe0c8', size: 1.6, sound: 'thwip' },
     { id: 'chirp', name: 'DECOY CHIRP', desc: 'Lands with a noise. Lures guards.', effect: 'noise', radius: 22, cost: 1, speed: 26, gravity: 14, life: 2.5, color: '#f2c14e', size: 1.2, sound: 'whiff' },
+    { id: 'shock', name: 'SPARK LINE', desc: 'Electrified line: long stun, even through a guard\'s nerves.', effect: 'stun', stun: 3.5, cost: 2, speed: 62, life: 0.9, color: '#7fd8ff', sound: 'thwip' },
+    { id: 'snare', name: 'SNARE MINE', desc: 'Sticks to the ground. First goon to step on it gets wrapped.', effect: 'mine', cost: 2, speed: 22, gravity: 16, life: 2.5, color: '#ff8ab0', size: 1.3, sound: 'whiff' },
+  ],
+
+  // Workstation upgrades — bought with ⚙ PARTS (earned from style, crimes, takedowns, side jobs, pages).
+  // stat: field on player.stats (number) · per: amount per level · gadget: unlocks that gadget id.
+  upgrades: [
+    { id: 'coil', name: 'Torsion Coil', desc: 'Stronger swing pump and higher top speed.', icon: '🌀', costs: [8, 16, 30], stat: 'swingPower', per: 0.07 },
+    { id: 'optics', name: 'Launch Optics', desc: 'Point-launch reaches farther ledges.', icon: '🎯', costs: [8, 18], stat: 'zipRange', per: 14 },
+    { id: 'weave', name: 'Kevlar Weave', desc: 'Suit lining soaks up hits.', icon: '🛡', costs: [10, 20, 34], stat: 'armor', per: 0.08 },
+    { id: 'heart', name: 'Okafor\'s Tonic', desc: 'More max health.', icon: '❤', costs: [12, 26], stat: 'maxHealth', per: 20 },
+    { id: 'tank', name: 'Fluid Tank', desc: 'Carry more line fluid in reserve.', icon: '🧪', costs: [6, 14, 24], stat: 'fluidCap', per: 30 },
+    { id: 'mag', name: 'Wrist Magazine', desc: 'More cartridges loaded at once.', icon: '🔋', costs: [10, 22], stat: 'mag', per: 4 },
+    { id: 'sense', name: 'Sense Amplifier', desc: 'Tether-Sense lasts longer and reaches farther.', icon: '👁', costs: [8, 18], stat: 'sense', per: 2 },
+    { id: 'spark', name: 'Spark Line', desc: 'Unlocks the SPARK LINE gadget (long stun).', icon: '⚡', costs: [18], gadget: 'shock' },
+    { id: 'snareMine', name: 'Snare Mine', desc: 'Unlocks the SNARE MINE gadget (trap).', icon: '🕸', costs: [22], gadget: 'snare' },
+  ],
+
+  // Sewing Station suit mods (one per suit). cost in ⚙ PARTS, sewn once then free to swap.
+  suitMods: [
+    { id: 'none', name: 'No mod', desc: 'Pure style.', cost: 0 },
+    { id: 'padded', name: 'Padded Lining', desc: '+10% damage resistance.', cost: 10, armor: 0.1 },
+    { id: 'aero', name: 'Aero Seams', desc: '+5% swing power.', cost: 12, swing: 0.05 },
+    { id: 'soft', name: 'Soft Soles', desc: 'Quieter footsteps & landings, slower suspicion.', cost: 10, quiet: 0.35 },
+    { id: 'pockets', name: 'Deep Pockets', desc: '+2 cartridges per magazine.', cost: 8, mag: 2 },
+  ],
+
+  // Kitchen recipes. steps: chop | flip | stir | heat. buff: regen | armor | swing | quiet | maxhp (amount, seconds)
+  recipes: [
+    { id: 'eggsandwich', name: 'Bodega Egg Sandwich', desc: 'Classic. Faster health regen.', steps: ['chop', 'heat', 'flip'], buff: { type: 'regen', amount: 2, time: 300 }, color: '#f2c14e' },
+    { id: 'gyro', name: "Gus's Gyro", desc: 'Gus swears by it. Damage resistance.', steps: ['chop', 'chop', 'heat', 'stir'], buff: { type: 'armor', amount: 0.15, time: 300 }, color: '#e4573d' },
+    { id: 'pancakes', name: 'Night Owl Pancakes', desc: 'Sugar rush! Swing power.', steps: ['stir', 'heat', 'flip', 'flip'], buff: { type: 'swing', amount: 0.08, time: 300 }, color: '#d9a27a' },
+    { id: 'dumplings', name: 'Lantern Dumplings', desc: 'Light on the stomach. Quieter movement.', steps: ['chop', 'stir', 'heat'], buff: { type: 'quiet', amount: 0.4, time: 300 }, color: '#f6f1df' },
+    { id: 'chili', name: 'Five-Alarm Brass Chili', desc: 'Sticks to your ribs. +25 max health.', steps: ['chop', 'stir', 'heat', 'stir'], buff: { type: 'maxhp', amount: 25, time: 420 }, color: '#c0362c' },
+  ],
+
+  // TV news (Evening Klaxon Channel 4). requires: save flag · minRep · any: always
+  news: [
+    { id: 'n1', text: 'MASKED MAN SEEN SWINGING OVER MIDTOWN — "IS IT A BIRD? IT IS NOT," SAYS PIGEON EXPERT', any: true },
+    { id: 'n2', text: 'FOUNDRY FIRE ON THE HARBOR: BARON FERROUS "SADDENED BY THE LOSS OF EQUIPMENT"', any: true },
+    { id: 'n3', text: 'GUS\'S CORNER PAWN REOPENS; OWNER CREDITS "THE STRING FELLOW"', requires: 'ch3' },
+    { id: 'n4', text: 'KLAXON POLL: 51% SAY TETHER IS A MENACE, 49% SAY "STOP CALLING US"', requires: 'ch3' },
+    { id: 'n5', text: 'VIOLET JESTER IN CUSTODY AFTER FOUNDERS\' NIGHT CHAOS', requires: 'ch4' },
+    { id: 'n6', text: 'CRIME DOWN IN KETTLE\'S ROW — RESIDENTS REPORT "A LOT OF ROPE"', minRep: 60 },
+    { id: 'n7', text: 'WEATHER: GOLDEN-HOUR HAZE OVER THE LEDGER, CLEAR NIGHTS UPTOWN', any: true },
+    { id: 'n8', text: 'LOCAL GIRL\'S PIGEON "STEVE" WINS BEST IN SHOW, JUDGES CONFUSED', requires: 'named' },
+    { id: 'n9', text: 'NIGHT OWL DINER ADDS "THE TETHER" PANCAKE STACK. IT IS VERY TALL.', minRep: 30 },
+    { id: 'n10', text: 'IRONWORKS DOCKS: OFFICER REYES WARNS OF SMUGGLING RING "WORKING THE NIGHT SHIFT"', any: true },
   ],
 
   rides: [
@@ -118,6 +223,18 @@ TetherMod.register({
 
   collectibles: [{ id: 'pages', name: 'Golden Age Pages', perCity: 20 }],
 
+  // World-map artwork (percent coordinates). Mods can override 'land', add 'labels' or 'lines' (bridges).
+  mapArt: {
+    land: [
+      [[36, 97], [27, 84], [26, 66], [28, 52], [33, 36], [41, 20], [50, 8], [58, 4], [66, 7], [72, 16], [73, 28], [69, 42], [62, 56], [55, 70], [48, 84], [42, 95]],
+      [[66, 66], [80, 60], [96, 56], [99, 70], [97, 99], [72, 99], [64, 84]],
+      [[19, 89], [23, 88], [24, 92], [20, 93]],
+    ],
+    lines: [[[56, 55], [74, 66]]],
+    labels: [{ text: 'BRASS ISLAND', at: [44, 44], rot: -58 }, { text: 'IRONSIDE CHANNEL', at: [63, 70], rot: -60, water: true }, { text: 'BRASS BAY', at: [18, 72], rot: 0, water: true }],
+    home: 'kettle',
+  },
+
   tips: [
     'Hold R2 while airborne to swing. Keep holding to chain swings automatically.',
     'Release a swing at the bottom of the arc for maximum speed. Press ✕ while swinging for a swing-jump.',
@@ -135,5 +252,13 @@ TetherMod.register({
     'Tap the minimap to open the World Map and travel between districts.',
     'Swinging needs something tall to anchor to — parks and the Docks have fewer anchors.',
     'Performance tip: Settings → Quality "Low" or turn off Comic FX on older phones.',
+    'In the air, press ✕ for tricks: push the stick for front/back flips and corkscrews. Land them clean to earn ⚙ PARTS.',
+    'Let go of a swing while rising (not at the very top) for a PERFECT release boost.',
+    'Line fluid is limited. Refill at the Workstation at home or grab teal supply caches on rooftops.',
+    'Home is in Kettle\'s Row — climb to the teal rooftop hatch, or pick HOME from the pause menu.',
+    'Cook at home before a big night out: meals give buffs like armor, swing power or quiet feet.',
+    'The BRASS-64 in your apartment runs real BASIC. Type LOAD "SNAKE" then RUN.',
+    'Subway entrances are fast travel: press ■ at a green subway stair.',
+    'Walk or swing off the edge of a district to cross straight into its neighbour.',
   ],
 });

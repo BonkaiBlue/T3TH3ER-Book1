@@ -6,11 +6,11 @@ import { tileRect } from './materials.js';
 const NOTILE = [0, 0, 0, 0];
 
 export class GeoBuilder {
-  constructor() { this.p = []; this.n = []; this.c = []; this.uv = []; this.t = []; }
+  constructor() { this.p = []; this.n = []; this.c = []; this.uv = []; this.t = []; this.si = []; this.bone = 0; }
   get count() { return this.p.length / 3; }
   tri(a, b, c, nrm, col, uva, uvb, uvc, tile) {
     this.p.push(...a, ...b, ...c);
-    for (let i = 0; i < 3; i++) { this.n.push(nrm[0], nrm[1], nrm[2]); this.c.push(col.r, col.g, col.b); this.t.push(tile[0], tile[1], tile[2], tile[3]); }
+    for (let i = 0; i < 3; i++) { this.n.push(nrm[0], nrm[1], nrm[2]); this.c.push(col.r, col.g, col.b); this.t.push(tile[0], tile[1], tile[2], tile[3]); this.si.push(this.bone); }
     this.uv.push(...uva, ...uvb, ...uvc);
   }
   quad(a, b, c, d, nrm, col, u = 1, v = 1, tile = NOTILE) {
@@ -32,6 +32,28 @@ export class GeoBuilder {
     if (f & 8) this.quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], col, su(w), sv, st);              // -z
     if (f & 16) this.quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0], ct, opts.top != null ? Math.max(1, w / 6) : 1, opts.top != null ? Math.max(1, d / 6) : 1, tt); // top
     if ((f & 32) && !opts.noBottom) this.quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], shade(col, 0.6), 1, 1, NOTILE);
+  }
+  // Generic 8-corner hexahedron: b = bottom ring [4 pts], t = top ring [4 pts], both CCW seen from above
+  // (order: -x-z, +x-z, +x+z, -x+z). Flat normals computed per face. Used for tapered low-poly limbs.
+  hexa(b, t, color, shadeSides = true) {
+    const face = (a, b2, c, d, k) => {
+      const ux = b2[0] - a[0], uy = b2[1] - a[1], uz = b2[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+      const col = shadeSides ? shade(color, 0.8 + 0.2 * Math.max(ny, Math.abs(nz) * 0.9)) : color;
+      this.quad(a, b2, c, d, [nx, ny, nz], col, 1, 1, NOTILE);
+    };
+    face(b[3], b[2], t[2], t[3]); // +z
+    face(b[1], b[0], t[0], t[1]); // -z
+    face(b[2], b[1], t[1], t[2]); // +x
+    face(b[0], b[3], t[3], t[0]); // -x
+    face(t[3], t[2], t[1], t[0]); // top
+    face(b[0], b[1], b[2], b[3]); // bottom
+  }
+  // tapered box along Y: (cx,cz) center, y0..y1, bottom size (wb,db), top size (wt,dt), optional z offset of top (lean)
+  taper(cx, y0, cz, wb, db, y1, wt, dt, color, topOff = 0) {
+    const B = [[cx - wb / 2, y0, cz - db / 2], [cx + wb / 2, y0, cz - db / 2], [cx + wb / 2, y0, cz + db / 2], [cx - wb / 2, y0, cz + db / 2]];
+    const T = [[cx - wt / 2, y1, cz - dt / 2 + topOff], [cx + wt / 2, y1, cz - dt / 2 + topOff], [cx + wt / 2, y1, cz + dt / 2 + topOff], [cx - wt / 2, y1, cz + dt / 2 + topOff]];
+    this.hexa(B, T, color);
   }
   // centered box helper for models
   cbox(cx, cy, cz, sx, sy, sz, color, opts = {}) { this.box(cx - sx / 2, cy - sy / 2, cz - sz / 2, cx + sx / 2, cy + sy / 2, cz + sz / 2, { ...opts, color }); }
@@ -66,6 +88,12 @@ export class GeoBuilder {
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('tile', new THREE.Float32BufferAttribute(this.t, 4));
+    if (this.skinned) {
+      const n = this.si.length, idx = new Uint16Array(n * 4), w = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) { idx[i * 4] = this.si[i]; w[i * 4] = 1; }
+      g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
+      g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(w, 4));
+    }
     g.computeBoundingSphere(); g.computeBoundingBox();
     return g;
   }

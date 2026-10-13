@@ -37,8 +37,17 @@ export class Menus {
     col.appendChild(this.btn('SETTINGS', () => this.go(() => this.settings())));
     col.appendChild(this.btn('MODS & PACKS', () => this.go(() => this.mods())));
     col.appendChild(this.btn('CREDITS', () => this.go(() => this.credits())));
+    col.appendChild(this.btn('⏻ QUIT GAME', () => g.quit(), 'quit'));
     t.appendChild(col);
     t.appendChild(h('div', 'title-foot', `v${g.version} · ${g.registry.packs.length} packs loaded · ★${s.reputation} · pages ${s.collectibles.length}`));
+    this.root.appendChild(t);
+  }
+  quitScreen() {
+    this.root.innerHTML = ''; this.root.className = 'show title';
+    const t = h('div', 'title-wrap quitscreen');
+    t.appendChild(h('div', 'logo', `<span class="l1">SEE YA!</span><span class="l2">Progress saved · you can close this tab now</span>`));
+    t.appendChild(h('p', 'note', 'Browsers only let a game close its own window when it is installed as an app. In Chrome: swipe the tab away (or install the APK build).'));
+    t.appendChild(this.btn('↩ BACK TO TITLE', () => { this.game.state = 'menu'; this.title(); }, 'big'));
     this.root.appendChild(t);
   }
   chapters() {
@@ -57,15 +66,25 @@ export class Menus {
     p.appendChild(grid); p.appendChild(this.btn('BACK', () => this.back()));
   }
   // Sims 3–style travel: pick a destination card on a stylized map, see info, press travel.
-  worldMap(inGame) {
-    const g = this.game; const p = this.panel('TRAVEL — ' + g.registry.str('regionName', 'GREATER BRASSHAVEN'), 'map');
+  worldMap(inGame, subway) {
+    const g = this.game; const p = this.panel((subway ? 'SUBWAY — ' : 'TRAVEL — ') + g.registry.str('regionName', 'GREATER BRASSHAVEN'), 'map');
     const wrap = h('div', 'map-wrap'); const map = h('div', 'map-canvas'); const info = h('div', 'map-info');
     const cities = g.registry.list('cities').filter((c) => !c.hidden);
+    const art = g.registry.data.mapArt || {};
     let sel = cities.find((c) => c.id === (g.cityId || g.save.data.lastCity)) || cities[0];
+    const svg = () => {
+      const poly = (pts, cls) => `<polygon class="${cls}" points="${pts.map((q) => q.join(',')).join(' ')}"/>`;
+      const land = (art.land || []).map((L) => poly(L, 'land')).join('');
+      const lines = (art.lines || []).map((L) => `<polyline class="bridge" points="${L.map((q) => q.join(',')).join(' ')}"/>`).join('');
+      const labels = (art.labels || []).map((l) => `<text class="${l.water ? 'wlabel' : 'llabel'}" x="${l.at[0]}" y="${l.at[1]}" transform="rotate(${l.rot || 0} ${l.at[0]} ${l.at[1]})">${l.text}</text>`).join('');
+      return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><defs><pattern id="dots" width="2" height="2" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.28" fill="rgba(0,0,0,0.18)"/></pattern></defs>
+        <rect width="100" height="100" fill="#6fb3b8"/><rect width="100" height="100" fill="url(#dots)"/>${land}${lines}${labels}</svg>`;
+    };
     const draw = () => {
-      map.innerHTML = '<div class="sea"></div>';
+      map.innerHTML = art.land ? svg() : '<div class="sea"></div>';
       for (const c of cities) {
-        const pin = h('div', 'pin' + (c === sel ? ' sel' : '') + (c.id === g.cityId ? ' here' : ''), `<b>${c.short || c.name}</b>`);
+        const isHome = art.home === c.id;
+        const pin = h('div', 'pin' + (c === sel ? ' sel' : '') + (c.id === g.cityId ? ' here' : '') + (isHome ? ' home' : ''), `<b>${c.short || c.name}</b>`);
         pin.style.left = (c.map ? c.map[0] : 50) + '%'; pin.style.top = (c.map ? c.map[1] : 50) + '%';
         pin.style.setProperty('--pc', c.color || '#e4573d');
         pin.addEventListener('click', () => { sel = c; g.audio.play('ui_click'); draw(); });
@@ -77,11 +96,12 @@ export class Menus {
       const facts = h('ul', 'facts');
       facts.innerHTML = `<li>Skyline: <b>${sel.skyline || '—'}</b></li><li>Crime: <b>${sel.crime || '—'}</b></li><li>Best for: <b>${sel.bestFor || '—'}</b></li>`;
       info.appendChild(facts);
-      info.appendChild(this.btn(sel.id === g.cityId ? 'YOU ARE HERE' : 'TRAVEL ➜', () => { if (sel.id !== g.cityId || !inGame) { this.hide(); g.travel(sel.id, { freeRoam: true }); } }, 'big'));
+      info.appendChild(this.btn(sel.id === g.cityId && inGame ? 'YOU ARE HERE' : (subway ? '🚇 RIDE ➜' : 'TRAVEL ➜'), () => { if (sel.id !== g.cityId || !inGame) { this.hide(); g.startFreeRoam(sel.id); } }, 'big'));
+      if (art.home && (!inGame || !g.world.data.interior)) info.appendChild(this.btn('⌂ GO HOME', () => { this.hide(); if (g.state !== 'play') { g.state = 'play'; } g.home.enter(); }));
     };
     draw();
     wrap.appendChild(map); wrap.appendChild(info); p.appendChild(wrap);
-    p.appendChild(this.btn('BACK', () => this.back()));
+    p.appendChild(this.btn('BACK', () => (inGame && this.stack.length === 0 ? g.resume() : this.back())));
   }
   loading(city, tip) {
     const el = this.loadEl; el.classList.add('show');
@@ -103,14 +123,17 @@ export class Menus {
     if (g.missions.active) col.appendChild(this.btn('RESTART CHECKPOINT', () => g.restartStep()));
     if (g.missions.active && !g.storyMode) col.appendChild(this.btn('ABANDON JOB', () => { g.missions.stop(true); g.resume(); }));
     if (!g.world.data.interior) col.appendChild(this.btn('WORLD MAP / TRAVEL', () => this.go(() => this.worldMap(true))));
+    if (!g.world.data.interior && !(g.storyMode && g.missions.active)) col.appendChild(this.btn('⌂ GO HOME', () => { this.hide(); g.state = 'play'; g.home.enter(); }));
+    if (g.world.data.apartment) col.appendChild(this.btn('🚪 LEAVE APARTMENT', () => { this.hide(); g.state = 'play'; g.home.leave(); }));
     col.appendChild(this.btn('CAMERA: ' + camName(g.rig.mode), () => { g.cycleCamera(); this.pause(); }));
     col.appendChild(this.btn('SUITS', () => this.go(() => this.suits())));
     col.appendChild(this.btn('MOVES & CONTROLS', () => this.go(() => this.controls())));
     col.appendChild(this.btn('SETTINGS', () => this.go(() => this.settings())));
     col.appendChild(this.btn('QUIT TO TITLE', () => g.toTitle()));
+    col.appendChild(this.btn('⏻ QUIT GAME', () => g.quit()));
     p.appendChild(col);
     const st = g.save.data.stats;
-    p.appendChild(h('div', 'stats', `Crimes stopped <b>${st.crimes}</b> · Takedowns <b>${st.takedowns}</b> · Swung <b>${(g.player.swingDistance / 1000).toFixed(2)} km</b> · Rep <b>★${g.save.data.reputation}</b>`));
+    p.appendChild(h('div', 'stats', `Crimes stopped <b>${st.crimes}</b> · Takedowns <b>${st.takedowns}</b> · Tricks <b>${st.tricks || 0}</b> · Swung <b>${(g.player.swingDistance / 1000).toFixed(2)} km</b> · Rep <b>★${g.save.data.reputation}</b> · Parts <b>⚙${g.save.data.parts || 0}</b>`));
   }
   inventory() {
     const g = this.game; this.stack = []; this.currentFn = () => this.inventory();
@@ -216,9 +239,9 @@ const CONTROLS_HTML = `
 <tr><th>Touch / Pad</th><th>Keyboard</th><th>Action</th></tr>
 <tr><td>Left stick</td><td>WASD</td><td>Move (push fully to run)</td></tr>
 <tr><td>Drag screen</td><td>Mouse (click to lock)</td><td>Look</td></tr>
-<tr><td style="color:#1e7bff">✕ Cross</td><td>Space</td><td>Jump · Vault · Mantle · Swing-jump · Wall-jump</td></tr>
-<tr><td style="color:#ff1e3c">○ Circle</td><td>C</td><td>Crouch · Slide (while running) · Drop · Dodge (when ⚠)</td></tr>
-<tr><td style="color:#ff2fb3">■ Square</td><td>E</td><td>Interact · Talk · Strike · Takedown · (hold) Reload</td></tr>
+<tr><td style="color:#1e7bff">✕ Cross</td><td>Space</td><td>Jump · Vault · Mantle · Swing-jump · Wall-jump · <b>in the air: TRICK</b> (stick picks flip/corkscrew)</td></tr>
+<tr><td style="color:#ff1e3c">○ Circle</td><td>C</td><td>Crouch · Slide (while running) · Drop · Dodge (when ⚠) · hold in the air: DIVE</td></tr>
+<tr><td style="color:#ff2fb3">■ Square</td><td>E</td><td>Interact · Talk · Strike (6-hit combo) · Takedown · (hold) Reload from fluid</td></tr>
 <tr><td style="color:#39ff6a">▲ Triangle</td><td>Q</td><td>Next gadget · (hold) Gear menu</td></tr>
 <tr><td>R2</td><td>F / MMB</td><td>Hold to SWING (keep holding to chain)</td></tr>
 <tr><td>L2</td><td>Z / RMB</td><td>Aim · with R2: Point-Launch to marked ledge</td></tr>
@@ -232,4 +255,6 @@ const CONTROLS_HTML = `
 <tr><td>START / SELECT</td><td>Esc / M</td><td>Pause · World map</td></tr>
 </table>
 <p><b>Stealth:</b> crouch to stay quiet, perch high (goons rarely look up), throw a Decoy Chirp to pull guards, and take them down from behind or from a ledge (■ when prompted). Downed goons found by others raise the alarm.</p>
-<p><b>Swinging:</b> anchors need something tall to stick to. Pump by looking where you want to go; release at the bottom of the arc for speed, ✕ for a swing-jump.</p>`;
+<p><b>Swinging:</b> anchors need something tall to stick to. Keep R2 held to chain swings; let go while rising (not at the very top) for a <b>PERFECT</b> release boost; ✕ for a swing-jump flip.</p>
+<p><b>Style:</b> chain swings, perfect releases and air tricks build STYLE. Land clean to cash it into ⚙ PARTS — bail and you lose it.</p>
+<p><b>Home:</b> Kettle's Row, teal rooftop hatch (or ⌂ GO HOME in the pause menu / map). Workstation = refills + upgrades, Kitchen = meal buffs, BRASS-64 = BASIC computer, Sewing = design your own suits.</p>`;

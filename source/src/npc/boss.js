@@ -8,6 +8,7 @@ import { FSM } from '../core/fsm.js';
 import { bus } from '../core/events.js';
 import { dampAngle } from '../core/util.js';
 
+const _t = new THREE.Vector3();
 export class Boss {
   constructor(game, def, arena) {
     this.game = game; this.def = def; this.arena = arena.clone(); // center of fight (roof level)
@@ -27,7 +28,7 @@ export class Boss {
   }
   get phase() { return this.hp > this.maxHp * 0.6 ? 1 : this.hp > this.maxHp * 0.25 ? 2 : 3; }
   tethered(power = 1) {
-    if (!this.fsm.is('fly', 'dive', 'recover')) return;
+    if (!this.fsm.is('fly', 'dive', 'recover', 'escape')) return;
     this.game.audio.play('zip'); bus.emit('boss:tethered');
     this.fsm.set('yanked');
   }
@@ -61,7 +62,9 @@ const STATES = {
       const p = this.game.player; this.flyT += dt;
       const ph = this.phase; const R = 22 + ph * 2, H = 13 + Math.sin(this.flyT * 0.7) * 4;
       this.orbitA += dt * (0.35 + ph * 0.08);
-      const tgt = new THREE.Vector3(this.arena.x + Math.cos(this.orbitA) * R, this.arena.y + H, this.arena.z + Math.sin(this.orbitA) * R);
+      // with an 'away' direction (arena beside a tower) he sweeps a wide arc on the open side, never behind cover
+      const ang = this.away ? Math.atan2(this.away.z, this.away.x) + Math.sin(this.orbitA) * 1.2 : this.orbitA;
+      const tgt = _t.set(this.arena.x + Math.cos(ang) * R, this.arena.y + H, this.arena.z + Math.sin(ang) * R);
       this.pos.lerp(tgt, 1 - Math.exp(-2 * dt));
       this.faceTo(p.pos, dt);
       this.bombT -= dt;

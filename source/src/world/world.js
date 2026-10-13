@@ -6,6 +6,7 @@ import { comicMaterial, shared } from '../render/materials.js';
 import { GeoBuilder, C } from '../render/geo.js';
 import { generateCity } from './citygen.js';
 import { generateFacility } from './facility.js';
+import { generateApartment } from './apartment.js';
 import { rng, clamp } from '../core/util.js';
 import { Props } from '../render/models.js';
 
@@ -28,6 +29,7 @@ export class World {
     if (this.traffic) { this.scene.remove(this.traffic.mesh); this.traffic.mesh.geometry.dispose(); this.traffic = null; }
     if (this.peds) { this.scene.remove(this.peds.mesh); this.peds.mesh.geometry.dispose(); this.peds = null; }
     if (this.fire) { this.scene.remove(this.fire.mesh); this.fire = null; }
+    if (this.pigeons) { this.scene.remove(this.pigeons.mesh); this.pigeons = null; }
     if (this.sky) { this.scene.remove(this.sky); this.sky = null; }
     while (this.dynamic.children.length) this.dynamic.remove(this.dynamic.children[0]);
     this.data = null;
@@ -43,10 +45,11 @@ export class World {
     this.clear();
     this.def = def;
     this.applyPalette(palette);
-    const gen = def.kind === 'facility' ? generateFacility(def, this) : generateCity(def, this);
+    const gen = def.kind === 'facility' ? generateFacility(def, this) : def.kind === 'interior' ? generateApartment(def, this) : generateCity(def, this);
     for (const p of gen) yield p * 0.85;
     this._buildSky(palette);
-    if (!this.data.interior) { this._buildTraffic(def); this._buildPeds(def); }
+    if (!this.data.interior) { this._buildTraffic(def); this._buildPeds(def); this._buildPigeons(def); }
+    this.ventT = 0;
     this._buildFire();
     yield 1;
   }
@@ -91,7 +94,7 @@ export class World {
     const mesh = new THREE.InstancedMesh(b.build(), comicMaterial({ atlas: false }), n);
     mesh.frustumCulled = false;
     const R = rng(def.seed + 5); const cars = [];
-    const cols = ['#d4472f', '#2a6fd4', '#f2c14e', '#3a8a5a', '#e8e0d0', '#6b4fa0', '#222222'];
+    const cols = ['#f2c14e', '#f2c14e', '#f2c14e', '#d4472f', '#2a6fd4', '#3a8a5a', '#e8e0d0', '#6b4fa0', '#222222'];
     for (let i = 0; i < n; i++) {
       const lane = R.pick(this.data.lanes); const dir = R.chance(0.5) ? 1 : -1;
       cars.push({ lane, dir, t: R.range(lane.a, lane.b), speed: R.range(7, 12), stopped: 0, box: null });
@@ -141,7 +144,7 @@ export class World {
   }
   _updateFire(dt) {
     const f = this.fire; if (!f) return;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pos = new THREE.Vector3();
+    const m = _m4, q = _q4, s = _s3, pos = _p3;
     let i = 0;
     for (const nd of f.nodes) {
       const on = nd.steam ? f.front > -998 : nd.z < f.front;
@@ -171,12 +174,17 @@ export class World {
       m.visible = d < far && this._frustum.intersectsSphere(bs);
     }
     this._updateTraffic(dt, player);
+    this._updatePigeons(dt, player);
+    if (this.data.vents && this.data.vents.length && this.fx) {
+      this.ventT -= dt;
+      if (this.ventT <= 0) { this.ventT = 0.22; let n = 0; for (const v of this.data.vents) { const dx = v[0] - camera.position.x, dz = v[2] - camera.position.z; if (dx * dx + dz * dz < 6400 && n < 4) { n++; _p3.set(v[0], v[1], v[2]); this.fx.puff(_p3); } } }
+    }
     this._updatePeds(dt, player);
     this._updateFire(dt);
   }
   _updateTraffic(dt, player) {
     const T = this.traffic; if (!T) return;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3();
+    const m = _m4, q = _q4, s = _s3.set(1, 1, 1), pos = _p3;
     T.cars.forEach((car, i) => {
       const L = car.lane;
       if (car.stopped > 0) car.stopped -= dt;
@@ -194,7 +202,7 @@ export class World {
   }
   _updatePeds(dt, player) {
     const P = this.peds; if (!P) return;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3();
+    const m = _m4, q = _q4, s = _s3.set(1, 1, 1), pos = _p3;
     const panic = this.panic || null;
     P.peds.forEach((p, i) => {
       const sw = p.sw; const w = sw.x1 - sw.x0, d = sw.z1 - sw.z0; const per = 2 * (w + d);
@@ -212,6 +220,29 @@ export class World {
     });
     P.mesh.instanceMatrix.needsUpdate = true;
   }
+  _buildPigeons(def) {
+    const spots = (this.data.perches || []).slice(0, 60); if (!spots.length) return;
+    const n = Math.min(36, spots.length * 3);
+    const b = new GeoBuilder(); b.cbox(0, 0.15, 0, 0.2, 0.2, 0.34, C('#8f9fb0')); b.cbox(0, 0.32, 0.14, 0.13, 0.13, 0.13, C('#6f7f90')); b.cbox(0, 0.3, 0.23, 0.04, 0.03, 0.07, C('#e0a02a'));
+    b.cbox(0.13, 0.2, -0.02, 0.06, 0.04, 0.24, C('#7a8a9a')); b.cbox(-0.13, 0.2, -0.02, 0.06, 0.04, 0.24, C('#7a8a9a'));
+    const mesh = new THREE.InstancedMesh(b.build(), comicMaterial({ atlas: false }), n); mesh.frustumCulled = false;
+    const R = rng((def.seed || 1) + 77); const birds = [];
+    for (let i = 0; i < n; i++) { const s = spots[i % spots.length]; const home = new THREE.Vector3(s[0] + R.range(-1.5, 1.5) * 0 , s[1], s[2] + R.range(-3, 3)); birds.push({ home, pos: home.clone(), vel: new THREE.Vector3(), fly: 0, yaw: R.range(0, 6.28), t: R.range(0, 9) }); }
+    this.scene.add(mesh); this.pigeons = { mesh, birds };
+  }
+  _updatePigeons(dt, player) {
+    const P = this.pigeons; if (!P) return;
+    const m = _m4, q = _q4, s = _s3.set(1, 1, 1);
+    P.birds.forEach((b, i) => {
+      b.t += dt;
+      if (b.fly > 0) { b.fly -= dt; b.vel.y += 2 * dt; b.pos.addScaledVector(b.vel, dt); if (b.fly <= 0) { b.pos.copy(b.home); b.vel.set(0, 0, 0); } }
+      else if (player && b.pos.distanceToSquared(player.pos) < 49) { b.fly = 14; const a = Math.random() * 6.28; b.vel.set(Math.cos(a) * 6, 5 + Math.random() * 3, Math.sin(a) * 6); b.yaw = Math.atan2(b.vel.x, b.vel.z); if (i % 6 === 0 && this.onFlock) this.onFlock(b.pos); }
+      else if (Math.sin(b.t * 1.3 + i) > 0.97) b.yaw += 0.6;
+      const flap = b.fly > 0 ? 1 + Math.sin(b.t * 30) * 0.3 : 1; s.set(flap, 1, 1);
+      q.setFromAxisAngle(UP, b.yaw); m.compose(b.pos, q, s); P.mesh.setMatrixAt(i, m);
+    });
+    P.mesh.instanceMatrix.needsUpdate = true;
+  }
   // nearest zip point in view cone
   findZipPoint(eye, fwd, maxDist = 55, cone = 0.93) {
     let best = null, bestScore = -1;
@@ -221,9 +252,9 @@ export class World {
       const dot = (dx * fwd.x + dy * fwd.y + dz * fwd.z) / d; if (dot < cone) continue;
       const score = dot * 2 - d / maxDist;
       if (score > bestScore) {
-        const v = new THREE.Vector3(zp[0], zp[1] + 0.3, zp[2]);
-        if (!this.collision.lineOfSight(eye, v)) continue;
-        bestScore = score; best = v;
+        _zv.set(zp[0], zp[1] + 0.3, zp[2]);
+        if (!this.collision.lineOfSight(eye, _zv)) continue;
+        bestScore = score; best = (best || new THREE.Vector3()).copy(_zv);
       }
     }
     return best;
@@ -235,3 +266,4 @@ export class World {
   }
 }
 const UP = new THREE.Vector3(0, 1, 0);
+const _zv = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _s3 = new THREE.Vector3(1, 1, 1), _p3 = new THREE.Vector3();

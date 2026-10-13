@@ -17,6 +17,7 @@ export const shared = {
 
 const vert = /* glsl */`
 attribute vec4 tile;
+#include <skinning_pars_vertex>
 varying vec3 vCol; varying vec2 vUv; varying vec4 vTile; varying float vFog; varying float vLight; varying vec3 vN;
 uniform vec3 sunDir; uniform float fogNear; uniform float fogFar; uniform vec2 snapRes; uniform float snapOn; uniform float time;
 uniform float wobble;
@@ -25,8 +26,14 @@ void main(){
   #ifdef USE_INSTANCING
     m = modelMatrix * instanceMatrix;
   #endif
-  vec4 wp = m * vec4(position, 1.0);
-  vec3 n = normalize(mat3(m) * normal);
+  vec3 transformed = position; vec3 objectNormal = normal;
+  #ifdef USE_SKINNING
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <skinning_vertex>
+  #endif
+  vec4 wp = m * vec4(transformed, 1.0);
+  vec3 n = normalize(mat3(m) * objectNormal);
   vN = n;
   float d = dot(n, sunDir);
   vLight = d;
@@ -84,11 +91,13 @@ export function comicMaterial(opts = {}) {
 export const TILE = {
   brick: 0, deco: 1, glass: 2, office: 3, warehouse: 4, brownstone: 5, roof: 6, road: 7,
   sidewalk: 8, labwall: 9, labfloor: 10, grate: 11, grass: 12, water: 13, wood: 14, plain: 15,
+  tenement: 16, lantern: 17, nightglass: 18, stone: 19, wallpaper: 20, kitchen: 21, rug: 22, marquee: 23, brickdark: 24, cobble: 25,
 };
-export function tileRect(i) { const x = i % 4, y = Math.floor(i / 4); return [x / 4 + 0.002, 1 - (y + 1) / 4 + 0.002, 0.25 - 0.004, 0.25 - 0.004]; }
+export const ATLAS_ROWS = 8;
+export function tileRect(i) { const x = i % 4, y = Math.floor(i / 4); return [x / 4 + 0.002, 1 - (y + 1) / ATLAS_ROWS + 0.001, 0.25 - 0.004, 1 / ATLAS_ROWS - 0.002]; }
 
 export function buildAtlas() {
-  const S = 128, cv = document.createElement('canvas'); cv.width = cv.height = S * 4;
+  const S = 128, cv = document.createElement('canvas'); cv.width = S * 4; cv.height = S * ATLAS_ROWS;
   const g = cv.getContext('2d');
   const at = (i, fn) => { g.save(); g.translate((i % 4) * S, Math.floor(i / 4) * S); g.beginPath(); g.rect(0, 0, S, S); g.clip(); fn(g); g.restore(); };
   const ink = '#1d1712';
@@ -177,6 +186,57 @@ export function buildAtlas() {
     g.fillStyle = '#7d5430'; for (let y = 0; y < S; y += 16) g.fillRect(0, y, S, 2);
   });
   at(TILE.plain, () => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, S, S); });
+  at(TILE.tenement, () => {
+    g.fillStyle = '#b5543a'; g.fillRect(0, 0, S, S);
+    g.strokeStyle = 'rgba(70,25,15,0.4)'; g.lineWidth = 2; for (let y = 0; y < S; y += 9) { g.beginPath(); g.moveTo(0, y); g.lineTo(S, y); g.stroke(); }
+    win(18, 26, 30, 62, false); win(80, 26, 30, 62, true);
+    g.fillStyle = '#e2d4b0'; g.fillRect(12, 16, 42, 6); g.fillRect(74, 16, 42, 6);
+  });
+  at(TILE.lantern, () => {
+    g.fillStyle = '#c0362c'; g.fillRect(0, 0, S, S);
+    g.fillStyle = '#f2c14e'; g.fillRect(0, 0, S, 10); g.fillRect(0, S - 10, S, 10);
+    win(14, 26, 44, 56, true); win(70, 26, 44, 56, false);
+    g.fillStyle = '#1e7a4a'; g.fillRect(10, 92, 108, 18); g.fillStyle = '#f2c14e'; g.font = 'bold 14px sans-serif'; g.fillText('福 · 龍 · 茶', 22, 106);
+  });
+  at(TILE.nightglass, () => {
+    g.fillStyle = '#1f3550'; g.fillRect(0, 0, S, S);
+    for (let y = 6; y < S; y += 21) for (let x = 6; x < S; x += 21) { g.fillStyle = Math.random() < 0.45 ? '#ffe9a0' : '#2c4a6a'; g.fillRect(x, y, 15, 15); }
+    g.fillStyle = '#0d1a28'; g.fillRect(0, 0, S, 3); g.fillRect(0, 0, 3, S);
+  });
+  at(TILE.stone, () => {
+    g.fillStyle = '#b7b0a2'; g.fillRect(0, 0, S, S);
+    g.strokeStyle = 'rgba(60,55,45,0.35)'; g.lineWidth = 2; for (let y = 0; y < S; y += 16) { g.beginPath(); g.moveTo(0, y); g.lineTo(S, y); g.stroke(); }
+    win(36, 24, 56, 70, false); g.fillStyle = '#8f887a'; g.beginPath(); g.moveTo(30, 24); g.lineTo(64, 6); g.lineTo(98, 24); g.closePath(); g.fill();
+  });
+  at(TILE.wallpaper, () => {
+    g.fillStyle = '#d9c38a'; g.fillRect(0, 0, S, S);
+    g.fillStyle = '#c4a96c'; for (let x = 0; x < S; x += 16) g.fillRect(x, 0, 6, S);
+    g.fillStyle = '#9a5a3a'; for (let y = 8; y < S; y += 32) for (let x = 11; x < S; x += 32) { g.beginPath(); g.arc(x, y, 3, 0, 6.28); g.fill(); }
+    g.fillStyle = '#6b4a2e'; g.fillRect(0, S - 14, S, 14);
+  });
+  at(TILE.kitchen, () => {
+    g.fillStyle = '#f2f0e6'; g.fillRect(0, 0, S, S);
+    for (let y = 0; y < S; y += 16) for (let x = 0; x < S; x += 16) if (((x + y) / 16) % 2 === 0) { g.fillStyle = '#2a9d9a'; g.fillRect(x, y, 16, 16); }
+  });
+  at(TILE.rug, () => {
+    g.fillStyle = '#8a2a2a'; g.fillRect(0, 0, S, S); g.strokeStyle = '#f2c14e'; g.lineWidth = 6; g.strokeRect(10, 10, S - 20, S - 20);
+    g.strokeStyle = '#2a6f8a'; g.lineWidth = 4; g.strokeRect(26, 26, S - 52, S - 52); g.fillStyle = '#f2c14e'; g.beginPath(); g.moveTo(64, 40); g.lineTo(88, 64); g.lineTo(64, 88); g.lineTo(40, 64); g.fill();
+  });
+  at(TILE.marquee, () => {
+    g.fillStyle = '#1d1712'; g.fillRect(0, 0, S, S); g.fillStyle = '#f2c14e'; g.fillRect(6, 6, S - 12, S - 12); g.fillStyle = '#c0362c'; g.fillRect(12, 12, S - 24, S - 24);
+    g.fillStyle = '#fff4dc'; g.font = 'bold 22px Impact, sans-serif'; g.fillText('CROWN', 26, 56); g.fillText('TONITE', 22, 86);
+    g.fillStyle = '#ffe9a0'; for (let x = 10; x < S; x += 12) { g.fillRect(x, 4, 4, 4); g.fillRect(x, S - 8, 4, 4); }
+  });
+  at(TILE.brickdark, () => {
+    g.fillStyle = '#6e3a30'; g.fillRect(0, 0, S, S);
+    g.strokeStyle = 'rgba(30,10,8,0.5)'; g.lineWidth = 2;
+    for (let y = 0; y < S; y += 10) { g.beginPath(); g.moveTo(0, y); g.lineTo(S, y); g.stroke(); }
+    win(20, 30, 32, 58, true); win(76, 30, 32, 58, false);
+  });
+  at(TILE.cobble, () => {
+    g.fillStyle = '#8c8578'; g.fillRect(0, 0, S, S);
+    for (let y = 0; y < S; y += 14) for (let x = (y / 14) % 2 ? 0 : 9; x < S; x += 18) { g.fillStyle = Math.random() < 0.5 ? '#9a9386' : '#7d766a'; g.fillRect(x + 1, y + 1, 16, 12); }
+  });
   const tex = new THREE.CanvasTexture(cv);
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
   tex.colorSpace = THREE.NoColorSpace;

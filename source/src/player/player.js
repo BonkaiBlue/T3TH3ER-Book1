@@ -6,8 +6,13 @@ import { moveBody } from '../world/collision.js';
 import { clamp, damp, lerp, wrapAngle } from '../core/util.js';
 import { bus } from '../core/events.js';
 import { input } from '../ui/input.js';
+import { TRICK_LIST } from '../render/rig.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
+const _eye = new THREE.Vector3(), _look = new THREE.Vector3(), _tmpA = new THREE.Vector3(), _tmpB = new THREE.Vector3(), _tmpC = new THREE.Vector3();
+const YAW_FAN = [0, 0.3, -0.3, 0.6, -0.6, 0.95, -0.95, 1.3, -1.3];
+const ELEV_FAN = [0.62, 0.8, 0.98, 1.15];
+const anchorFilter = (b) => !b.trigger && !b.curb && !b.rail && !b.invisible;
 const G = 22;
 const RIDES = {
   skateboard: { max: 13.5, accel: 7, friction: 0.35, turn: 1, jump: 7.0, pose: 'ride' },
@@ -29,6 +34,9 @@ export class Player {
     this.pose = 'idle'; this.speed = 0; this.landImpact = 0; this.stepPhase = 0; this.lastStepSign = 1;
     this.swingDistance = 0; this.airTime = 0; this.noiseTimer = 0; this.lockTimer = 0; this.lockPose = 'idle';
     this.lastSafe = new THREE.Vector3(); this.safeTimer = 0; this.swingRetry = 0; this.coyote = 0; this.jumpBuffer = 0;
+    this.trick = null; this.style = 0; this.combo = 0; this.swingSide = 1; this.ropeTarget = 0; this.swingChain = 0; this.swingPhase = 0;
+    this.groundTrick = null; this.ropeShootT = 1; this.anchorNormal = new THREE.Vector3(0, 1, 0); this.wallUp = false;
+    this.stats = { swingPower: 1, zipRange: 55, maxHealth: 100, armor: 0 }; // filled from upgrades by Game.applyUpgrades
     this._fwd = new THREE.Vector3(); this._right = new THREE.Vector3(); this._tmp = new THREE.Vector3(); this._tmp2 = new THREE.Vector3();
     this.fsm = new FSM(this, STATES, 'ground');
   }
@@ -47,11 +55,13 @@ export class Player {
   eye(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z); }
   hurt(amount, from) {
     if (this.game.godMode || this.fsm.is('locked') && this.lockPose === 'takedown') return;
+    amount *= 1 - (this.stats.armor || 0) - (this.game.buffArmor ? this.game.buffArmor() : 0);
     this.health -= amount; this.lastHurt = this.game.time;
+    if (this.trick) { this.trick = null; this.style = 0; this.combo = 0; }
     bus.emit('player:hurt', { amount, from });
     if (this.health <= 0) { this.health = 0; bus.emit('player:dead'); }
   }
-  lock(t, pose = 'idle') { this.lockTimer = t; this.lockPose = pose; if (!this.fsm.is('locked')) this.fsm.set('locked'); }
+  lock(t, pose = 'idle') { this.lockTimer = t; this.lockDur = t; this.lockPose = pose; if (!this.fsm.is('locked')) this.fsm.set('locked'); }
   setCrouch(c) {
     if (!c && this.crouch) { // need headroom
       const q = this.world.collision.query(this.pos.x - this.hw, this.pos.y + 0.1, this.pos.z - this.hw, this.pos.x + this.hw, this.pos.y + 1.8, this.pos.z + this.hw, []);
@@ -70,13 +80,14 @@ export class Player {
     this.h = damp(this.h, this.targetH, 14, dt);
     this.fsm.update(dt);
     // regen
-    if (this.health < this.maxHealth && this.game.time - this.lastHurt > 4) this.health = Math.min(this.maxHealth, this.health + 8 * dt);
+    if (this.health < this.maxHealth && this.game.time - this.lastHurt > 4) this.health = Math.min(this.maxHealth, this.health + 8 * (this.stats.regen || 1) * dt);
     // safe-spot tracking for respawns (water / pits)
     this.safeTimer += dt;
-    if (this.ground && this.safeTimer > 1 && this.pos.y > this.world.collision.floorFn(this.pos.x, this.pos.z) + -0.5) { this.lastSafe.copy(this.pos); this.safeTimer = 0; }
+    if (this.ground && this.safeTimer > 1 && !this.inLake() && this.pos.y > this.world.collision.floorFn(this.pos.x, this.pos.z) + -0.5) { this.lastSafe.copy(this.pos); this.safeTimer = 0; }
     // water / void check
     const floorY = this.world.collision.floorFn(this.pos.x, this.pos.z);
     if (floorY < -1 && this.pos.y <= floorY + 0.3 && !this.world.data.interior) { bus.emit('player:splash'); this.respawnSafe(); }
+    if (this.pos.y < 0.8 && this.inLake()) { bus.emit('player:splash'); this.respawnSafe(); }
     if (this.pos.y < -25) this.respawnSafe();
     this.speed = Math.hypot(this.vel.x, this.vel.z);
     // swing distance stat
@@ -106,7 +117,7 @@ export class Player {
     const h = this.ray(this.pos.x, this.pos.y + height, this.pos.z, dir.x, 0, dir.z, dist);
     if (h && h.box && Math.abs(h.normal[1]) < 0.5) return h; return null;
   }
-  emitNoise(radius) { bus.emit('noise', { pos: this.pos.clone(), radius, source: 'player' }); }
+  emitNoise(radius) { bus.emit('noise', { pos: this.pos.clone(), radius: radius * (1 - (this.stats.quiet || 0)), source: 'player' }); }
   freerun() { return input.down('l1'); }
   sprinting() { return Math.hypot(input.move.x, input.move.y) > 0.85 || this.freerun(); }
   tryVault() {
@@ -164,39 +175,80 @@ export class Player {
     }
     return false;
   }
+  // Swing anchors: aim for a point ahead & above (like the big Spidey games), fan rays around it and
+  // pick the building hit closest to that ideal. Low hits, floors, curbs and things behind us are rejected.
   findAnchor() {
-    const eye = this.eye(new THREE.Vector3()); const look = this.lookDir(new THREE.Vector3());
+    const eye = this.eye(_eye); const look = this.lookDir(_look);
     const hv = Math.hypot(this.vel.x, this.vel.z);
-    // bias toward velocity when moving fast, else toward camera
     let fx = look.x, fz = look.z;
-    if (hv > 6) { fx = fx * 0.5 + this.vel.x / hv * 0.5; fz = fz * 0.5 + this.vel.z / hv * 0.5; }
+    if (hv > 4) { const w = Math.min(0.7, hv / 25); fx = fx * (1 - w) + this.vel.x / hv * w; fz = fz * (1 - w) + this.vel.z / hv * w; }
     const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+    const wantAhead = 14 + Math.min(hv, 32) * 0.45, wantUp = clamp(13 + hv * 0.3, 11, 26);
     let best = null, bestScore = -1e9;
-    const elev = [0.95, 1.1, 0.8, 1.25, 0.65];
-    const yawOff = [0, 0.38, -0.38, 0.7, -0.7];
-    for (const e of elev) for (const yo of yawOff) {
-      const c = Math.cos(yo), s = Math.sin(yo);
-      const hx = fx * c - fz * s, hz = fx * s + fz * c;
+    for (const yo of YAW_FAN) for (const e of ELEV_FAN) {
+      const c = Math.cos(yo), sn = Math.sin(yo);
+      const hx = fx * c - fz * sn, hz = fx * sn + fz * c;
       const ce = Math.cos(e), se = Math.sin(e);
-      const dx = hx * ce, dy = se, dz = hz * ce;
-      const h = this.ray(eye.x, eye.y, eye.z, dx, dy, dz, 75, (b) => !b.trigger && !b.curb);
+      const h = this.ray(eye.x, eye.y, eye.z, hx * ce, se, hz * ce, 90, anchorFilter);
       if (!h || h.floor || !h.box) continue;
-      if (h.point[1] < this.pos.y + 4) continue;
+      const up = h.point[1] - this.pos.y;
+      if (up < (this.pos.y < 4 ? 3 : 4.5)) continue;
       const ahead = (h.point[0] - eye.x) * fx + (h.point[2] - eye.z) * fz;
-      if (ahead < 2) continue;
-      const score = Math.min(ahead, 30) / 30 * 2 - Math.abs(yo) * 0.6 + Math.min(h.point[1] - this.pos.y, 30) / 30 - Math.abs(e - 0.95) * 0.4;
+      if (ahead < 2.5) continue;
+      const roofEdge = h.box.max[1] - h.point[1] < 3 ? 0.35 : 0;
+      const score = -Math.abs(ahead - wantAhead) * 0.07 - Math.abs(up - wantUp) * 0.05 - Math.abs(yo) * 0.45 + roofEdge + (Math.abs(yo) > 0.2 ? 0.15 : 0);
       if (score > bestScore) { bestScore = score; best = h; }
     }
     return best;
   }
   startSwing(h) {
-    this.anchor.set(h.point[0], h.point[1], h.point[2]);
+    this.anchor.set(h.point[0], Math.min(h.point[1], h.box ? h.box.max[1] : h.point[1]), h.point[2]);
+    if (h.normal) this.anchorNormal.set(h.normal[0], h.normal[1], h.normal[2]);
     const d = this.anchor.distanceTo(this.pos);
-    this.ropeLen = Math.max(5, d * 0.9);
-    this.ropeActive = true;
+    // ground under the bottom of the arc → never drag through the street
+    const g = this.ray(this.anchor.x + this.anchorNormal.x * 0.6, this.anchor.y - 0.5, this.anchor.z + this.anchorNormal.z * 0.6, 0, -1, 0, 200, anchorFilter);
+    this.arcFloor = g ? g.point[1] : 0;
+    const maxLen = Math.max(6, this.anchor.y - this.arcFloor - 2.6);
+    this.ropeLen = d; this.ropeTarget = clamp(d * 0.93, 6, maxLen);
+    const r = this.right(); this.swingSide = ((this.anchor.x - this.pos.x) * r.x + (this.anchor.z - this.pos.z) * r.z) < 0 ? -1 : 1;
+    // slow / low starts get a yank so a swing from the sidewalk still feels heroic
+    const sp = this.vel.length();
+    if (sp < 12) { const to = _tmpA.subVectors(this.anchor, this.pos).normalize(); this.vel.addScaledVector(to, 7 - sp * 0.3); this.vel.y += 2.5; }
+    this.ropeActive = true; this.ropeShootT = 0;
     if (this.ride) this.dismount();
     this.fsm.set('swing');
-    bus.emit('player:thwip', { anchor: this.anchor.clone() });
+    this.addStyle(25, null);
+    bus.emit('player:thwip', { anchor: this.anchor.clone(), side: this.swingSide });
+  }
+  // ---- style & tricks
+  addStyle(n, label) { this.style += Math.round(n * (1 + this.combo * 0.25)); if (label) { this.combo++; bus.emit('player:style', { label, style: this.style, combo: this.combo }); } }
+  startTrick(type) {
+    const def = TRICK_LIST[type]; if (!def) return false;
+    this.trick = { type, t: 0, dur: def.dur, k: 0 };
+    this.addStyle(type === 'doubleflip' ? 220 : 120, type);
+    bus.emit('player:trick', { type });
+    return true;
+  }
+  pickTrick() {
+    const x = input.move.x, y = input.move.y;
+    if (y > 0.55) return this.trick && this.trick.type === 'frontflip' ? 'doubleflip' : 'frontflip';
+    if (y < -0.55) return 'backflip';
+    if (x > 0.55) return 'corkscrew';
+    if (x < -0.55) return 'sidespin';
+    return ['superman', 'starfish', 'twist'][(Math.random() * 3) | 0];
+  }
+  updateTrick(dt) {
+    const tr = this.trick || this.groundTrick; if (!tr) return;
+    tr.t += dt; tr.k = tr.t / tr.dur;
+    if (tr.k >= 1) { if (this.trick === tr) this.trick = null; else this.groundTrick = null; }
+  }
+  cashStyle(clean) {
+    if (this.style <= 0) { this.combo = 0; return; }
+    if (clean) {
+      const parts = this.style >= 120 ? Math.max(1, Math.floor(this.style / 220)) : 0;
+      bus.emit('player:stylecash', { style: this.style, combo: this.combo, parts });
+    } else bus.emit('player:bailstyle', { style: this.style });
+    this.style = 0; this.combo = 0;
   }
   dismount() { if (this.ride) { this.ride = null; bus.emit('player:ride', null); } }
   cycleRide() {
@@ -215,20 +267,23 @@ export class Player {
   aimZip(dt) {
     this._zipScan -= dt;
     if (input.down('l2') && this.abilities.zip) {
-      if (this._zipScan <= 0) { this._zipScan = 0.1; this.aimZipPoint = this.world.findZipPoint(this.eye(new THREE.Vector3()), this.lookDir(new THREE.Vector3())); }
+      if (this._zipScan <= 0) { this._zipScan = 0.1; this.aimZipPoint = this.world.findZipPoint(this.eye(_eye), this.lookDir(_look), this.stats.zipRange); }
     } else this.aimZipPoint = null;
     if (this.aimZipPoint && input.pressed('r2')) { input.consume('r2'); this.zipTarget = this.aimZipPoint.clone(); this.fsm.set('zip'); bus.emit('player:zip', { target: this.zipTarget }); return true; }
     return false;
   }
+  inLake() { const L = this.world.data && this.world.data.lakes; if (!L) return false; for (const l of L) if (this.pos.x > l.x0 - 1.5 && this.pos.x < l.x1 + 1.5 && this.pos.z > l.z0 - 1.5 && this.pos.z < l.z1 + 1.5) return true; return false; }
+  heightAboveGround() { const h = this.ray(this.pos.x, this.pos.y + 0.1, this.pos.z, 0, -1, 0, 60, anchorFilter); return h ? h.t : 60; }
   canSwingInput() { return this.abilities.swing && input.down('r2') && !input.down('l2'); }
 }
 
 // ---------------------------------------------------------------- states
 const STATES = {
   ground: {
-    enter() { this.ground = true; this.airTime = 0; },
+    enter() { this.ground = true; this.airTime = 0; this.swingChain = 0; },
     update(dt) {
       const p = this;
+      p.updateTrick(dt);
       if (p.aimZip(dt)) return;
       const want = p.moveInput(); const mag = Math.min(1, Math.hypot(input.move.x, input.move.y));
       let maxS = p.crouch ? 2.6 : (mag > 0.85 || p.freerun()) ? (p.freerun() ? 9.6 : 7.6) : 4.4;
@@ -260,14 +315,15 @@ const STATES = {
         const s = Math.sign(Math.sin(p.stepPhase * Math.PI));
         if (s !== p.lastStepSign) { p.lastStepSign = s; bus.emit('player:step', { crouch: p.crouch, speed: p.speed }); if (!p.crouch) p.emitNoise(p.speed > 6 ? 9 : 4); }
       }
-      p.pose = p.crouch ? 'crouch' : p.speed > 6 ? 'run' : p.speed > 0.5 ? 'walk' : 'idle';
+      p.pose = p.crouch ? 'crouch' : p.speed > 8.4 ? 'sprint' : p.speed > 5 ? 'run' : p.speed > 0.4 ? 'walk' : 'idle';
     },
   },
   air: {
-    enter(prev) { this.ground = false; if (prev !== 'swing' && prev !== 'wallrun') this.swingRetry = 0; },
+    enter(prev) { this.ground = false; if (prev !== 'swing' && prev !== 'wallrun' && prev !== 'zip') this.swingRetry = 0; },
     update(dt) {
       const p = this;
       p.airTime += dt; p.coyote -= dt;
+      p.updateTrick(dt);
       if (p.aimZip(dt)) return;
       const want = p.moveInput();
       const ac = 10;
@@ -275,32 +331,47 @@ const STATES = {
       const hs = Math.hypot(p.vel.x, p.vel.z), cap = Math.max(9.5, hs - 3 * dt);
       if (hs > cap) { p.vel.x *= cap / hs; p.vel.z *= cap / hs; }
       p.vel.y -= G * dt; if (p.vel.y < -55) p.vel.y = -55;
-      if (input.pressed('cross') && p.coyote > 0) { p.groundJump(); return; }
+      if (input.pressed('cross')) {
+        if (p.coyote > 0) { p.groundJump(); return; }
+        // air tricks: stick direction picks the move, chain them before you land
+        if (p.airTime > 0.1 && (!p.trick || p.trick.k > 0.7) && p.heightAboveGround() > 2.5) p.startTrick(p.pickTrick());
+      }
       // swinging (hold R2) — auto re-attach while held after a short delay
       p.swingRetry -= dt;
-      if (p.canSwingInput() && p.swingRetry <= 0 && (input.pressed('r2') || p.airTime > 0.18)) {
+      if (p.canSwingInput() && p.swingRetry <= 0 && (input.pressed('r2') || p.airTime > 0.16)) {
         const h = p.findAnchor();
-        if (h) { p.startSwing(h); return; }
+        if (h) { p.trick = null; p.startSwing(h); return; }
         else if (input.pressed('r2')) bus.emit('player:noanchor');
         p.swingRetry = 0.15;
       }
       // free-run in air: wall-run / ledge / climb
-      if (p.vel.y < 4 && p.tryLedge()) return;
-      if ((p.freerun() || p.speed > 6.5) && p.tryWallRun()) return;
-      if (input.move.y > 0.5 && (p.freerun() || p.vel.y < 0) && p.tryClimb()) return;
-      // dive / dive-kick feel: holding circle in air falls faster
-      if (input.down('circle')) p.vel.y -= 14 * dt;
+      if (!p.trick) {
+        if (p.vel.y < 4 && p.tryLedge()) return;
+        if ((p.freerun() || p.speed > 6.5) && p.tryWallRun()) return;
+        if (input.move.y > 0.5 && (p.freerun() || p.vel.y < 0) && p.tryClimb()) return;
+      }
+      // dive: hold circle to drop head-first
+      const diving = input.down('circle') && p.vel.y < 0;
+      if (diving) p.vel.y -= 16 * dt;
       const vy = p.vel.y;
       const res = p.physics(dt, {});
       if (res.ground) {
+        const hsp = Math.hypot(p.vel.x, p.vel.z);
         p.landImpact = clamp(-vy / 25, 0, 1);
+        const bailed = p.trick && p.trick.k < 0.82;
+        if (bailed) {
+          p.trick = null; p.cashStyle(false); p.vel.x *= 0.2; p.vel.z *= 0.2; p.lock(0.6, 'stunned'); bus.emit('player:bail');
+          bus.emit('player:land', { impact: p.landImpact, vy }); return;
+        }
+        p.trick = null; p.cashStyle(true);
         bus.emit('player:land', { impact: p.landImpact, vy });
         if (-vy > 10) p.emitNoise(12);
-        // roll landing keeps speed when free-running
-        if (-vy > 18 && !p.freerun()) { p.vel.x *= 0.4; p.vel.z *= 0.4; }
+        if (-vy > 13 && hsp > 5.5) { p.groundTrick = { type: 'roll', t: 0, dur: 0.45, k: 0 }; bus.emit('player:roll'); }
+        else if (-vy > 18 && !p.freerun()) { p.vel.x *= 0.45; p.vel.z *= 0.45; p.landSquash = true; }
         p.fsm.set(p.ride ? 'ride' : 'ground'); return;
       }
-      p.pose = p.vel.y < -14 ? 'glide' : 'air';
+      const fallSpeed = -p.vel.y;
+      p.pose = diving ? 'dive' : fallSpeed > 17 ? 'skydive' : fallSpeed > 5 && p.airTime > 0.5 ? 'fall' : 'jump';
     },
   },
   slide: {
@@ -350,13 +421,14 @@ const STATES = {
       const t = p._tmp.set(-n.z, 0, n.x); // tangent
       // map stick: up = climb, sideways = shimmy (relative to camera facing the wall)
       const facing = p.fwd().dot(n) < 0 ? 1 : -1;
-      const fast = p.freerun() ? 1.45 : 1;
+      const fast = p.freerun() ? 2.1 : 1;
+      p.wallUp = p.freerun() && input.move.y > 0.5;
       const up = input.move.y * 4.2 * fast * (facing > 0 ? 1 : 0.6);
       const side = input.move.x * 3.2 * fast;
       const rr = p.right();
       const tsgn = (t.x * rr.x + t.z * rr.z) >= 0 ? 1 : -1;
       p.vel.set(t.x * side * tsgn - n.x * 1.0, up, t.z * side * tsgn - n.z * 1.0);
-      p.pose = Math.abs(up) + Math.abs(side) > 0.2 ? 'climb' : 'hang';
+      p.pose = p.wallUp ? 'wallup' : Math.abs(up) + Math.abs(side) > 0.2 ? 'climb' : 'hang';
       if (input.pressed('cross')) { // wall jump: push off and up
         if (input.move.y > 0.3) { p.vel.set(-n.x * -0.5, 9.5, -n.z * -0.5); }
         else { p.vel.set(n.x * 7, 8, n.z * 7); p.yaw = Math.atan2(-n.x, -n.z); }
@@ -424,55 +496,67 @@ const STATES = {
     enter() { this.swingT = 0; this.pose = 'swing'; },
     exit() { this.ropeActive = false; },
     update(dt) {
-      const p = this; p.swingT += dt;
-      const a = p.anchor;
-      // forces: gravity + pump along camera forward (tangent to rope) + steer
+      const p = this; p.swingT += dt; p.ropeShootT += dt;
+      p.updateTrick(dt);
+      const a = p.anchor, power = p.stats.swingPower * (1 + Math.min(p.swingChain, 6) * 0.03);
       p.vel.y -= G * dt;
-      const look = p.lookDir(p._tmp2); const want = p.moveInput();
-      const toA = p._tmp.subVectors(a, p.pos); const dist = toA.length(); toA.divideScalar(dist);
-      const pump = 15 * Math.max(0.25, input.move.y);
-      const fx = look.x * 0.6 + want.x * 0.6, fz = look.z * 0.6 + want.z * 0.6;
-      p.vel.x += fx * pump * dt; p.vel.z += fz * pump * dt;
-      // reel in for lift when slow, keeps swing satisfying near ground
-      if (p.ropeLen > 7) p.ropeLen -= (2.2 + (p.pos.y < 6 ? 4 : 0)) * dt;
-      // integrate & constrain
+      const toA = _tmpA.subVectors(a, p.pos); const dist = toA.length(); toA.divideScalar(dist);
+      // tangential direction of travel (perpendicular to rope)
+      const tan = _tmpB.copy(p.vel).addScaledVector(toA, -p.vel.dot(toA));
+      const tl = tan.length(); if (tl > 0.5) tan.divideScalar(tl); else tan.copy(p.fwd());
+      const bottom = clamp(toA.y, 0, 1);                       // 1 = hanging straight down
+      const pushing = input.move.y > -0.3 ? 1 : 0.3;
+      const pump = (9 + 14 * bottom * bottom) * power * pushing;
+      p.vel.addScaledVector(tan, pump * dt);
+      // steer: stick sideways + camera look pull the arc around corners
+      const look = p.lookDir(_look); const r = p.right();
+      p.vel.x += (r.x * input.move.x * 10 + look.x * 5) * dt; p.vel.z += (r.z * input.move.x * 10 + look.z * 5) * dt;
+      // reel toward the ground-safe length (smooth, no snapping)
+      if (p.ropeLen > p.ropeTarget) p.ropeLen = Math.max(p.ropeTarget, p.ropeLen - 24 * dt);
+      const lowest = a.y - p.ropeLen; if (lowest < p.arcFloor + 2.2) p.ropeLen = Math.max(5, a.y - p.arcFloor - 2.2);
       const res = p.physics(dt, {});
-      const d2 = p._tmp.subVectors(p.pos, a); const len = d2.length();
+      const d2 = _tmpC.subVectors(p.pos, a); const len = d2.length();
       if (len > p.ropeLen) {
         d2.divideScalar(len);
         p.pos.copy(a).addScaledVector(d2, p.ropeLen);
         const radial = p.vel.dot(d2); if (radial > 0) p.vel.addScaledVector(d2, -radial);
       }
-      const sp = p.vel.length(); if (sp > 44) p.vel.multiplyScalar(44 / sp);
-      // keep feet out of the street: if close to ground, nudge up
-      if (p.pos.y < 1.5 && p.vel.y < 0) p.vel.y *= 0.9;
+      const sp = p.vel.length(), cap = 46 * power; if (sp > cap) p.vel.multiplyScalar(cap / sp);
+      p.swingPhase = clamp(p.vel.y / Math.max(6, sp), -1, 1);
       p.pose = 'swing';
-      const passed = p.pos.y > a.y - 1.5 || (p.swingT > 0.4 && toA.y < 0.15);
-      if (input.pressed('cross')) { // swing jump
-        const v = p.vel; v.y = Math.max(v.y, 0) + 9; const hs = Math.hypot(v.x, v.z) || 1; v.x += v.x / hs * 3; v.z += v.z / hs * 3;
-        p.swingRetry = 0.35; p.fsm.set('air'); bus.emit('player:release', { jump: true }); return;
+      const passed = p.pos.y > a.y - 1.2 || (p.swingT > 0.45 && toA.y < 0.1);
+      if (input.pressed('cross')) { // swing-jump: big launch + automatic flip
+        const v = p.vel; v.y = Math.max(v.y, 0) + 10; const hs = Math.hypot(v.x, v.z) || 1; v.x += v.x / hs * 4; v.z += v.z / hs * 4;
+        p.swingRetry = 0.35; p.swingChain++; p.fsm.set('air'); bus.emit('player:release', { jump: true });
+        p.addStyle(80, null); if (sp > 12) p.startTrick(input.move.y < -0.5 ? 'backflip' : 'frontflip');
+        return;
       }
       if (!input.down('r2') || passed || p.swingT > 4.5) {
-        if (p.vel.y > -6) p.vel.y += 3.5;
-        const hs = Math.hypot(p.vel.x, p.vel.z) || 1; p.vel.x += p.vel.x / hs * 1.5; p.vel.z += p.vel.z / hs * 1.5;
-        p.swingRetry = passed ? 0.12 : 0.05; p.fsm.set('air'); bus.emit('player:release', { jump: false }); return;
+        // release timing: letting go while rising at ~15–50° gives a PERFECT boost
+        const rise = p.vel.y / Math.max(1, sp);
+        const perfect = !passed && rise > 0.22 && rise < 0.78 && sp > 10;
+        const hs = Math.hypot(p.vel.x, p.vel.z) || 1;
+        if (perfect) { p.vel.x += p.vel.x / hs * 5; p.vel.z += p.vel.z / hs * 5; p.vel.y += 4; p.swingChain++; p.addStyle(150, null); bus.emit('player:perfect'); }
+        else { if (p.vel.y > -6) p.vel.y += 3; p.vel.x += p.vel.x / hs * 1.5; p.vel.z += p.vel.z / hs * 1.5; }
+        p.swingRetry = passed ? 0.12 : 0.05; p.fsm.set('air'); bus.emit('player:release', { jump: false, perfect }); return;
       }
-      if (res.ground && p.vel.y <= 0.1 && p.swingT > 0.2) { p.fsm.set('ground'); return; }
+      if (res.ground && p.vel.y <= 0.1 && p.swingT > 0.2) { p.swingChain = 0; p.fsm.set('ground'); return; }
       if (res.wallX || res.wallZ) { if (p.tryWallRun() || p.tryClimb()) return; }
     },
   },
   zip: {
-    enter() { this.zipT = 0; this.ropeActive = true; this.anchor.copy(this.zipTarget); if (this.ride) this.dismount(); },
+    enter() { this.zipT = 0; this.ropeActive = true; this.ropeShootT = 0; this.trick = null; this.anchor.copy(this.zipTarget); this.ropeLen = this.anchor.distanceTo(this.pos); this.swingSide = 1; if (this.ride) this.dismount(); },
     exit() { this.ropeActive = false; },
     update(dt) {
       const p = this; p.zipT += dt;
       const to = p._tmp.subVectors(p.zipTarget, p.pos); const d = to.length();
-      p.pose = 'zip';
+      p.pose = 'zip'; p.ropeShootT += dt;
       if (d < 1.2 || p.zipT > 3) {
         // point launch: arrive with a hop; Cross held/pressed = launch
         const f = p.fwd();
-        p.vel.set(f.x * 6, input.down('cross') ? 14 : 6.5, f.z * 6); p.pos.y = Math.max(p.pos.y, p.zipTarget.y - 0.2);
-        p.fsm.set('air'); bus.emit('player:ziparrive'); return;
+        const launch = input.down('cross');
+        p.vel.set(f.x * (launch ? 9 : 6), launch ? 15 : 6.5, f.z * (launch ? 9 : 6)); p.pos.y = Math.max(p.pos.y, p.zipTarget.y - 0.2);
+        p.fsm.set('air'); bus.emit('player:ziparrive'); if (launch) { p.addStyle(100, null); p.startTrick('frontflip'); } return;
       }
       to.divideScalar(d); const s = Math.min(34, 10 + p.zipT * 60);
       p.vel.copy(to).multiplyScalar(s);
@@ -511,7 +595,7 @@ const STATES = {
   locked: {
     enter() { this.vel.x = 0; this.vel.z = 0; },
     update(dt) {
-      const p = this; p.lockTimer -= dt; p.pose = p.lockPose === 'dialogue' ? 'idle' : p.lockPose;
+      const p = this; p.lockTimer -= dt; p.pose = p.lockPose === 'dialogue' ? 'idle' : p.lockPose; p.updateTrick(dt);
       p.vel.y -= G * dt; p.physics(dt, { grounded: true });
       if (p.lockTimer <= 0 && p.lockPose !== 'dialogue') p.fsm.set(p.ride ? 'ride' : 'ground');
     },

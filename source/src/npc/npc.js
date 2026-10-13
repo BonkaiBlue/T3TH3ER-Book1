@@ -8,6 +8,7 @@ import { clamp, wrapAngle, dampAngle, rng } from '../core/util.js';
 import { bus } from '../core/events.js';
 
 const ICONS = {};
+const _eye = new THREE.Vector3(), _tp = new THREE.Vector3();
 function iconTex(ch, col) {
   const k = ch + col; if (ICONS[k]) return ICONS[k];
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
@@ -63,8 +64,8 @@ export class NPC {
     if (d > 2.5 && cos < Math.cos(half)) return 0;
     // looking up is unnatural for goons: big height difference = harder to notice (perching!)
     if (dy > 3.5 && Math.atan2(dy, d) > 0.6) return 0;
-    const eye = new THREE.Vector3(this.pos.x, this.pos.y + eyeH, this.pos.z);
-    const tp = new THREE.Vector3(target.x, target.y + 1.0, target.z);
+    const eye = _eye.set(this.pos.x, this.pos.y + eyeH, this.pos.z);
+    const tp = _tp.set(target.x, target.y + 1.0, target.z);
     if (!this.game.world.collision.lineOfSight(eye, tp)) return 0;
     return 1 - d / v.range;
   }
@@ -176,7 +177,7 @@ const NPC_STATES = {
       const ranged = t.weapon === 'gun';
       const want = ranged ? 13 : 1.5;
       if (this.windup > 0) {
-        this.windup -= dt; this.vel.x *= 0.7; this.vel.z *= 0.7; this.pose = ranged ? 'aim' : 'punch';
+        this.windup -= dt; this.vel.x *= 0.7; this.vel.z *= 0.7; this.pose = ranged ? 'aim' : (this.id.length % 2 ? 'jab' : 'hook'); this._k = (this._k || 0) + 1;
         if (this.windup <= 0) {
           if (ranged) this.mgr.game.combat.enemyShoot(this, p);
           else if (d < 2.3 && Math.abs(p.pos.y - this.pos.y) < 1.6) this.mgr.game.combat.enemyMelee(this, p);
@@ -240,6 +241,7 @@ function perceive(dt) {
   if (s > 0) {
     let rate = 0.6 + s * 2.4;
     if (p.crouch) rate *= 0.45;
+    rate *= 1 - (p.stats && p.stats.quiet || 0) * 0.6;
     if (p.pos.y - this.pos.y > 3) rate *= 0.35;
     if (p.fsm.is('swing', 'zip')) rate *= 1.5;
     this.suspicion = clamp(this.suspicion + rate * dt * (this.type.alertness ?? 1), 0, 1);

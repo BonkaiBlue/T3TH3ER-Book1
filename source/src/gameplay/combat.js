@@ -6,6 +6,9 @@ import { input } from '../ui/input.js';
 import { comicMaterial } from '../render/materials.js';
 import { GeoBuilder, C } from '../render/geo.js';
 import { clamp } from '../core/util.js';
+import { Rope } from '../render/rope.js';
+import { boneWorld } from '../render/rig.js';
+const COMBO = ['jab', 'cross', 'hook', 'jab', 'uppercut', 'spinkick'];
 
 const WORDS = { punch: ['POW!', 'WHAM!', 'BIFF!', 'SOCK!'], kick: ['KRAK!', 'THUD!'], takedown: ['BONK!', 'KAYO!'], bind: ['SNAP!', 'TWANG!'], pod: ['SPLUT!', 'GLOMP!'], line: ['ZZIP!'], boom: ['KA-BOOM!', 'BLAM!'], shot: ['BLAM!', 'PEW!'] };
 
@@ -30,10 +33,11 @@ export class Combat {
   }
   attach(scene) {
     this.scene = scene;
+    this.rope = new Rope(scene); this.traps = [];
     for (const r of [...this.ropePool.free, ...this.ropePool.active]) scene.add(r);
     for (const p of [...this.projPool.free, ...this.projPool.active]) scene.add(p.mesh);
   }
-  reset() { this.projPool.releaseAll(); this.ropePool.releaseAll(); this.swingRope = null; this.lingerLines.length = 0; this.wordPool.releaseAll(); this.interactables.length = 0; this.ammo = this.maxAmmo; }
+  reset() { this.projPool.releaseAll(); this.ropePool.releaseAll(); this.swingRope = null; this.lingerLines.length = 0; this.wordPool.releaseAll(); this.interactables.length = 0; this.targets.length = 0; for (const t of this.traps || []) this.scene.remove(t.mesh); this.traps = []; if (this.rope) this.rope.hide(); }
   get gadgets() { return this.game.save.data.inventory.gadgets.map((g) => this.game.registry.get('gadgets', g)).filter(Boolean); }
   get gadget() { const g = this.gadgets; return g[this.gadgetIdx % Math.max(1, g.length)]; }
   addInteractable(it) { this.interactables.push(it); return it; }
@@ -53,11 +57,11 @@ export class Combat {
     const playable = g.state === 'play' && !p.fsm.is('locked');
     // ---------- Tether-Sense (L3)
     if (playable && input.pressed('l3') && this.senseCool <= 0 && p.abilities.gadgets !== false) {
-      this.senseT = 6; this.senseCool = 9; A.play('sense'); bus.emit('combat:sense');
+      this.senseT = this.senseMax = 6 + (p.stats.sense || 0); this.senseCool = 9; A.play('sense'); bus.emit('combat:sense');
     }
     const senseOn = this.senseT > 0;
-    for (const n of g.npcs.list) n.senseVisible = senseOn && n.hostile && n.alive && !n.downed && n.dist(p.pos) < 70;
-    g.renderer.postMat.uniforms.senseAmt.value = clamp(this.senseT > 5.6 ? (6 - this.senseT) * 2.5 : this.senseT / 1.5, 0, 1) * 0.8;
+    for (const n of g.npcs.list) n.senseVisible = senseOn && n.hostile && n.alive && !n.downed && n.dist(p.pos) < 70 + (p.stats.sense || 0) * 10;
+    g.renderer.postMat.uniforms.senseAmt.value = clamp(this.senseT > (this.senseMax || 6) - 0.4 ? ((this.senseMax || 6) - this.senseT) * 2.5 : this.senseT / 1.5, 0, 1) * 0.8;
     // ---------- dodge: circle while a telegraph is active nearby
     if (playable && this.dangerT > 0 && input.pressed('circle') && !p.fsm.is('swing', 'climb', 'hang')) {
       input.consume('circle'); this.iframes = 0.5; this.dangerT = 0;
@@ -77,8 +81,14 @@ export class Combat {
     this.updatePrompt();
     if (playable && input.pressed('square')) this.square();
     if (playable && input.down('square') && !this.prompt && this.ammo < this.maxAmmo) {
-      this.reloadT += dt; if (this.reloadT > 0.8) { this.ammo = this.maxAmmo; this.reloadT = 0; A.play('ui_ok'); bus.emit('combat:reload'); this.word('RELOAD!', p.pos); }
+      this.reloadT += dt;
+      if (this.reloadT > 0.8) {
+        this.reloadT = 0; const S = g.save.data; const need = this.maxAmmo - this.ammo; const got = Math.min(need, Math.floor(S.fluid));
+        if (got <= 0) { g.hud.toast('Out of line fluid! Refill at home or grab a supply cache.', 2.2); A.play('ui_back'); }
+        else { this.ammo += got; S.fluid -= got; A.play('ui_ok'); bus.emit('combat:reload'); this.word('RELOAD!', p.pos); }
+      }
     } else this.reloadT = 0;
+    this.updateTraps(dt);
     // ---------- projectiles
     this.projPool.each((pr) => this.updateProjectile(pr, dt));
     // ---------- ropes
@@ -146,17 +156,19 @@ export class Combat {
       if (d > 2 && dot < 0.35) continue;
       const s = dot * 3 - d; if (s > bs) { bs = s; tgt = n; }
     }
-    if (!tgt) { g.audio.play('whiff'); p.lock(0.2, 'punch'); bus.emit('combat:whiff'); return; }
+    if (!tgt) { g.audio.play('whiff'); p.lock(0.26, COMBO[this.combo % 2]); this.combo++; this.comboT = 0.8; bus.emit('combat:whiff'); return; }
     // lunge
     const d = tgt.dist(p.pos);
     if (d > 1.6) { const dx = tgt.pos.x - p.pos.x, dz = tgt.pos.z - p.pos.z; p.vel.x = dx / d * Math.min(20, d * 8); p.vel.z = dz / d * Math.min(20, d * 8); }
     p.yaw = Math.atan2(-(tgt.pos.x - p.pos.x), -(tgt.pos.z - p.pos.z));
-    this.combo++; this.comboT = 1.2;
-    const finisher = this.combo % 3 === 0;
-    p.lock(0.22, finisher ? 'kick' : 'punch');
+    const move = COMBO[this.combo % COMBO.length]; this.combo++; this.comboT = 1.2;
+    const finisher = move === 'uppercut' || move === 'spinkick';
+    p.lock(finisher ? 0.42 : 0.28, move);
+    p.addStyle(finisher ? 60 : 25, null);
     setTimeout(() => {
       if (!tgt.alive || tgt.downed) return;
       tgt.hit(finisher ? 2 : 1, p.pos, finisher ? 'kick' : 'melee');
+      if (move === 'uppercut') tgt.vel.y = 7;
       this.punchFX(tgt.pos, finisher ? 'kick' : 'punch');
       g.player.emitNoise(10);
     }, 110);
@@ -167,7 +179,7 @@ export class Combat {
     const from = p.pos.clone(); const nfx = Math.sin(n.yaw), nfz = Math.cos(n.yaw);
     const to = new THREE.Vector3(n.pos.x - nfx * 0.9, n.pos.y, n.pos.z - nfz * 0.9);
     if (perch) { g.audio.play('zip'); this.addLingerLine(from.clone().setY(from.y + 1.2), n.pos.clone().setY(n.pos.y + 1.5), 0.4); }
-    p.lock(perch ? 0.7 : 0.5, 'punch'); p.lockPose = 'takedown';
+    p.lock(perch ? 0.7 : 0.5, 'takedown'); p.addStyle(perch ? 200 : 120, null);
     const dur = perch ? 0.45 : 0.18; let t = 0;
     n.stun = 99; n.fsm.set('stunned');
     const step = () => {
@@ -190,27 +202,34 @@ export class Combat {
       let best = null, bd = 0.94;
       const cands = g.npcs.list.filter((n) => n.hostile && n.alive && !n.downed).map((n) => n.pos.clone().setY(n.pos.y + 1.1));
       if (g.boss && g.boss.alive) cands.push(g.boss.pos.clone().setY(g.boss.pos.y + 1));
-      for (const c of cands) { const v = c.clone().sub(eye); const d = v.length(); if (d > 40) continue; v.divideScalar(d); const dt = v.dot(dir); if (dt > bd) { bd = dt; best = v; } }
-      if (best) dir.copy(best);
+      let bestT = null; const ents = g.npcs.list.filter((n) => n.hostile && n.alive && !n.downed);
+      for (let i = 0; i < cands.length; i++) { const c = cands[i]; const v = c.clone().sub(eye); const d = v.length(); if (d > 45) continue; v.divideScalar(d); const dt = v.dot(dir); if (dt > bd) { bd = dt; best = v; bestT = i < ents.length ? ents[i] : g.boss; } }
+      if (best) { dir.copy(best); this._homeTarget = bestT; } else this._homeTarget = null;
     }
     const pr = this.projPool.get(); if (!pr.mesh.parent) this.scene.add(pr.mesh);
-    this.handWorld(this.handPos);
+    this.handWorld(this.handPos, 1);
     pr.mesh.position.copy(this.handPos); pr.prev.copy(this.handPos); pr.vel.copy(dir).multiplyScalar(gd.speed || 45);
     pr.life = gd.life || 1.2; pr.kind = gd.effect; pr.gadget = gd; pr.owner = 'player'; pr.gravity = gd.gravity || 0;
+    pr.target = !this.aiming && gd.gravity == null ? this._homeTarget : null; // straight-line gadgets get gentle homing
     pr.mesh.material.uniforms.tint.value.set(gd.color || '#ffffff'); pr.mesh.material.uniforms.tintAmt.value = 1; pr.mesh.visible = true;
     pr.mesh.scale.setScalar(gd.size || 1);
     if (gd.effect === 'bind' || gd.effect === 'pull') { pr.rope = this.ropePool.get(); if (!pr.rope.parent) this.scene.add(pr.rope); pr.rope.visible = true; }
     g.audio.play(gd.sound || 'thwip'); bus.emit('combat:fire', gd); p.emitNoise(3);
     g.viewmodel && g.viewmodel.kick('R');
   }
-  handWorld(out) {
+  handWorld(out, side = 1) {
     const g = this.game, vm = g.viewmodel;
-    if (g.rig.mode === 'fp' && vm) { out.set(0.2, -0.17, -0.55); return g.renderer.camera.localToWorld(out); }
-    const p = g.player; const r = p.right(); return out.set(p.pos.x + r.x * 0.35, p.pos.y + 1.35, p.pos.z + r.z * 0.35);
+    if (g.rig.mode === 'fp' && vm) { out.set(0.22 * side, -0.12, -0.55); return g.renderer.camera.localToWorld(out); }
+    if (g.heroModel && g.heroModel.root.visible) return boneWorld(g.heroModel, side < 0 ? 'handL' : 'handR', out);
+    const p = g.player; const r = p.right(); return out.set(p.pos.x + r.x * 0.35 * side, p.pos.y + 1.35, p.pos.z + r.z * 0.35 * side);
   }
   updateProjectile(pr, dt) {
     const g = this.game; pr.life -= dt;
     pr.prev.copy(pr.mesh.position);
+    if (pr.target && pr.owner === 'player' && (pr.target.alive !== false) && !pr.target.downed) {
+      const tp = this._v.copy(pr.target.pos); tp.y += 1.1; tp.sub(pr.mesh.position); const dist = tp.length();
+      if (dist > 0.5) { const sp = pr.vel.length(); tp.multiplyScalar(sp / dist); pr.vel.lerp(tp, Math.min(1, dt * 6)).setLength(sp); }
+    }
     pr.vel.y -= pr.gravity * dt;
     pr.mesh.position.addScaledVector(pr.vel, dt);
     pr.mesh.rotation.x += dt * 12; pr.mesh.rotation.y += dt * 9;
@@ -223,7 +242,7 @@ export class Combat {
           if (!n.hostile || !n.alive || n.downed) continue;
           if (segSphere(a, seg, len, n.pos.x, n.pos.y + 1.0, n.pos.z, 0.75)) { this.impact(pr, b, n); return; }
         }
-        if (g.boss && g.boss.alive && segSphere(a, seg, len, g.boss.pos.x, g.boss.pos.y + 1.0, g.boss.pos.z, 1.4)) { this.impact(pr, b, null, g.boss); return; }
+        if (g.boss && g.boss.alive && segSphere(a, seg, len, g.boss.pos.x, g.boss.pos.y + 1.0, g.boss.pos.z, 2.0)) { this.impact(pr, b, null, g.boss); return; }
         for (const t of this.targets) if (segSphere(a, seg, len, t.pos.x, t.pos.y + 1.2, t.pos.z, t.radius)) { t.onHit(pr.kind); this.projPool.release(pr); return; }
       } else {
         const p = g.player;
@@ -252,6 +271,18 @@ export class Combat {
         if (boss) boss.tethered(0.5);
         g.fx.burst(point, '#e8f6f0', 14);
         break;
+      case 'stun':
+        if (npc) { npc.hit(1, g.player.pos, 'zap'); npc.stun = Math.max(npc.stun, gd.stun || 3); npc.fsm.set('stunned'); this.word('ZZAP!', npc.pos); g.fx.burst(npc.pos.clone().setY(npc.pos.y + 1), '#7fd8ff', 12); g.audio.play('sense', { rate: 1.8 }); }
+        if (boss) boss.tethered(0.5);
+        break;
+      case 'mine': {
+        if (npc) { npc.bind(3); this.word('SNAP!', npc.pos); break; }
+        if (this.traps.length >= 3) { const old = this.traps.shift(); this.scene.remove(old.mesh); }
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 0.12, 8), new THREE.MeshBasicMaterial({ color: gd.color || 0xff8ab0 }));
+        m.position.copy(point); m.position.y += 0.06; this.scene.add(m); this.traps.push({ mesh: m, t: 40, pos: m.position });
+        g.audio.play('pod', { rate: 1.6 }); this.word('SET!', point);
+        break;
+      }
       case 'noise':
         g.audio.play('chirp'); g.fx.burst(point, '#f2c14e', 6);
         g.npcs.onNoise({ pos: point.clone(), radius: gd.radius || 20, source: 'decoy' });
@@ -267,6 +298,14 @@ export class Combat {
     }
     this.projPool.release(pr);
   }
+  updateTraps(dt) {
+    for (let i = this.traps.length - 1; i >= 0; i--) {
+      const tr = this.traps[i]; tr.t -= dt; tr.mesh.rotation.y += dt * 2;
+      let hit = null; for (const n of this.game.npcs.list) if (n.hostile && n.alive && !n.downed && n.pos.distanceTo(tr.pos) < 1.7) { hit = n; break; }
+      if (hit) { hit.bind(3); this.word('SNAP!', hit.pos); this.game.audio.play('pod'); this.game.fx.burst(tr.pos, '#ff8ab0', 10); }
+      if (hit || tr.t <= 0) { this.scene.remove(tr.mesh); this.traps.splice(i, 1); }
+    }
+  }
   addLingerLine(a, b, t) { const r = this.ropePool.get(); if (!r.parent) this.scene.add(r); r.visible = true; this.stretch(r, a, b); this.lingerLines.push({ r, t }); }
   stretch(m, a, b) {
     const d = a.distanceTo(b); m.position.copy(a); m.scale.set(0.06, 0.06, Math.max(0.01, d)); m.lookAt(b);
@@ -274,9 +313,10 @@ export class Combat {
   updateRopes(dt) {
     const g = this.game, p = g.player;
     if (p.ropeActive) {
-      if (!this.swingRope) { this.swingRope = this.ropePool.get(); if (!this.swingRope.parent) this.scene.add(this.swingRope); this.swingRope.visible = true; }
-      this.handWorld(this.handPos); this.stretch(this.swingRope, this.handPos, p.anchor);
-    } else if (this.swingRope) { this.ropePool.release(this.swingRope); this.swingRope = null; }
+      this.handWorld(this.handPos, p.swingSide);
+      const slack = p.ropeLen - p.pos.distanceTo(p.anchor);
+      this.rope.update(this.handPos, p.anchor, p.ropeShootT, slack, g.time, g.renderer.camera.position);
+    } else this.rope.hide();
     for (let i = this.lingerLines.length - 1; i >= 0; i--) { const l = this.lingerLines[i]; l.t -= dt; if (l.t <= 0) { this.ropePool.release(l.r); this.lingerLines.splice(i, 1); } }
   }
   // ---------- enemy attacks

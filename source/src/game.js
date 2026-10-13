@@ -22,11 +22,13 @@ import { Dialogue } from './ui/dialogue.js';
 import { HUD } from './ui/hud.js';
 import { Menus, camName } from './ui/menus.js';
 import { Audio } from './audio/sfx.js';
-import { clamp, damp } from './core/util.js';
+import { Home } from './home/home.js';
+import { clamp, damp, dampAngle } from './core/util.js';
+const _hv = new THREE.Vector3();
 
 export class Game {
   constructor() {
-    this.version = '1.0.0';
+    this.version = '1.1.0';
     this.registry = registry; this.save = save; this.bus = bus; this.input = input;
     this.mod = installModAPI(this);
     registry.setDisabled(save.data.mods.disabled);
@@ -37,7 +39,7 @@ export class Game {
     this.overlay = new TouchOverlay(document.getElementById('ctrl'), save.settings);
     this.overlay.setVisible(false);
     this.world = new World(this.renderer);
-    this.fx = new FX(this.world.scene);
+    this.fx = new FX(this.world.scene); this.world.fx = this.fx;
     this.player = new Player(this);
     this.rig = new CameraRig(this.renderer.camera, save.settings);
     this.npcs = new NPCManager(this); this.npcs.attach(this.world.scene);
@@ -49,7 +51,10 @@ export class Game {
     this.menus = new Menus(this);
     this.vmScene = new THREE.Scene();
     this.vmCam = new THREE.PerspectiveCamera(60, 1, 0.01, 10); // viewmodel camera: fixed horizontal FOV so hands fit any aspect
+    this.home = new Home(this);
     this.setSkin(save.data.skin, true);
+    this.home.applyUpgrades();
+    this.world.onFlock = () => this.audio.play('whoosh', { vol: 0.25, rate: 1.8, minGap: 0.5 });
     this._wire();
     registry.runHook('onBoot', this);
     this.last = performance.now();
@@ -63,14 +68,14 @@ export class Game {
     if (!temp) { this.save.data.skin = s.id; if (!silent) this.save.write(); }
     this.activeSkin = s.id;
     if (this.heroModel) this.world.scene.remove(this.heroModel.root);
-    this.heroModel = buildCharacter({ ...s.palette, style: s.style || 'hero' });
-    this.heroModel.root.traverse((o) => (o.frustumCulled = false));
+    this.heroModel = buildCharacter({ ...s.palette, style: s.style || 'hero' }, { hero: true });
     if (this.vm) this.vmScene.remove(this.vm.group);
     this.vm = buildViewModel(s.palette); this.vmScene.add(this.vm.group);
     this.vm.kickT = { L: 0, R: 0 };
     this.vm.kick = (side) => (this.vm.kickT[side] = 0.18);
     this.viewmodel = this.vm;
     if (this.world.scene) this.world.scene.add(this.heroModel.root);
+    if (this.home && id !== '__preview') this.home.applyUpgrades();
     bus.emit('skin:changed', s);
   }
   applySettings() {
@@ -109,6 +114,11 @@ export class Game {
     bus.on('ui:map', () => { if (this.state === 'play' && !this.world.data.interior) { this.pause(); this.menus.go(() => this.menus.worldMap(true)); } });
     bus.on('mission:complete', (def) => this.onMissionComplete(def));
     bus.on('boss:defeated', () => { this.hud.toast('THE JESTER IS DOWN!', 3); });
+    bus.on('player:style', (e) => this.hud.stylePop(e));
+    bus.on('player:perfect', () => { this.hud.stylePop({ label: 'PERFECT RELEASE', style: this.player.style, combo: this.player.combo }); A.play('collect', { vol: 0.35, rate: 1.5 }); });
+    bus.on('player:trick', () => A.play('whoosh', { vol: 0.45, rate: 1.4 }));
+    bus.on('player:bailstyle', () => this.hud.stylePop(null));
+    bus.on('player:roll', () => A.play('step', { vol: 0.5, rate: 0.6 }));
     document.addEventListener('visibilitychange', () => { if (document.hidden && this.state === 'play') this.pause(); });
     // desktop: click canvas to capture mouse
     document.getElementById('ctrl').addEventListener('click', () => {
@@ -132,6 +142,7 @@ export class Game {
     this.travel(save.data.lastCity || 'midtown', { attract: true });
   }
   toTitle() {
+    this.home.close(true);
     this.missions.stop(false); this.activities.clear(); this.npcs.clear(); this.despawnBoss();
     this.storyMode = false; this.freeRoam = false; this.state = 'menu'; this.overlay.setVisible(false); this.hud.show(false);
     document.exitPointerLock && document.exitPointerLock();
@@ -143,18 +154,30 @@ export class Game {
     document.exitPointerLock && document.exitPointerLock();
     this.menus.pause(); bus.emit('game:pause');
   }
+  // Browsers only let a page close itself in a few cases (installed app / script-opened tab), so try the
+  // native routes first and otherwise show a "safe to close" screen.
+  quit() {
+    save.write(); this.audio.play('ui_back');
+    try { const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App; if (cap && cap.exitApp) { cap.exitApp(); return; } } catch (e) { /* not native */ }
+    try { if (navigator.app && navigator.app.exitApp) { navigator.app.exitApp(); return; } } catch (e) { /* not cordova */ }
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { /* ignore */ }
+    window.close();
+    setTimeout(() => { this.state = 'quit'; this.menus.quitScreen(); }, 250);
+  }
   resume() { this.menus.hide(); this.state = 'play'; this.overlay.setVisible(!this.dialogue.open); bus.emit('game:resume'); }
   openInventory() { if (this.state !== 'play') return; this.state = 'pause'; this.overlay.setVisible(false); input.clearTouch(); this.menus.inventory(); }
 
   async travel(cityId, opts = {}) {
     const def = registry.get('cities', cityId) || registry.list('cities')[0];
     if (!def) { console.error('No cities registered'); return; }
-    const palette = registry.get('palettes', opts.palette || def.palette) || registry.list('palettes')[0];
+    const palId = opts.palette || (opts.freeRoam && def.kind === 'city' && save.data.tod) || def.palette;
+    const palette = registry.get('palettes', palId) || registry.get('palettes', def.palette) || registry.list('palettes')[0];
+    this.home.close(true);
     this.state = opts.attract ? 'menu' : 'loading';
     this.overlay.setVisible(false); this.hud.show(false);
     if (!opts.keepMission) this.missions.stop(false);
     this.activities.clear(); this.npcs.clear(); this.despawnBoss(); this.combat.reset();
-    this.world.panic = null;
+    this.world.panic = null; this.dialogue.clearCaptions();
     const tips = registry.tips; const tip = tips.length ? tips[(Math.random() * tips.length) | 0] : '';
     if (!opts.attract) this.menus.loading(def, tip);
     // streamed generation within a frame budget (keeps Android watchdog + UI responsive)
@@ -174,8 +197,11 @@ export class Game {
     this.world.scene.add(this.heroModel.root);
     this.fireOn = false;
     if (!def.hidden && !opts.attract) save.data.lastCity = def.id;
-    const sp = opts.spawn ? this.missions.loc(opts.spawn) : this.world.data.spawn.clone();
-    this.player.spawn(sp, opts.yaw ?? def.spawnYaw ?? 0);
+    let sp = opts.spawn ? this.missions.loc(opts.spawn) : this.world.data.spawn.clone(); let yaw = opts.yaw ?? def.spawnYaw ?? 0;
+    const es = opts.edge && this.world.data.edgeSpawns && this.world.data.edgeSpawns[opts.edge];
+    if (es) { sp = new THREE.Vector3(es[0], es[1], es[2]); yaw = es[3]; }
+    this.player.spawn(sp, yaw);
+    if (es && opts.carry) { const f = this.player.fwd(); this.player.vel.set(f.x * opts.carry, 2, f.z * opts.carry); }
     this.checkpoint = { pos: sp.clone(), yaw: this.player.yaw };
     registry.runHook('onCityLoaded', this, def);
     if (opts.attract) { this.attract = true; return true; }
@@ -193,10 +219,10 @@ export class Game {
     bus.emit('city:loaded', def);
     return true;
   }
-  startFreeRoam(cityId) {
+  startFreeRoam(cityId, opts = {}) {
     if (this.activeSkin !== save.data.skin) this.setSkin(save.data.skin, true);
     this.storyMode = false; this.player.abilities = { swing: true, zip: true, gadgets: true, ride: true, wallrun: true, climb: true };
-    this.travel(cityId, { freeRoam: true });
+    return this.travel(cityId, { freeRoam: true, ...opts });
   }
   async startStory(chId, resume) {
     const ch = registry.get('chapters', chId) || registry.get('chapters', 'ch1');
@@ -287,12 +313,17 @@ export class Game {
       this.checkTriggers();
       this.dialogue.update(dt);
       this.updateHints();
+    } else if (this.state === 'home') {
+      this.dialogue.update(dt);
     } else if (this.state === 'pause' || this.state === 'menu') {
       if (input.pressed('start') && this.state === 'pause') this.resume();
       if (this.attract && this.state === 'menu') this.attractCam(dt);
     }
+    this.home.update(dt);
+    if (playing) this.checkExits(dt);
     if (this.world.data) {
-      if (playing || this.state === 'pause') this.rig.update(playing ? dt : 0, this.player, this.world);
+      if (this.home.showcase) this.home.showcaseCam(dt);
+      else if (playing || this.state === 'pause' || this.state === 'home') this.rig.update(playing ? dt : 0, this.player, this.world);
       this.renderer.camera.updateMatrixWorld();
       this.world.update(playing ? dt : dt * 0.3, this.renderer.camera, this.player);
       this.updateHero(dt);
@@ -300,7 +331,8 @@ export class Game {
       this.fx.update(dt);
       if (playing) this.hud.update(dt);
       this.updateAudioLoops();
-      this.renderer.render(this.world.scene, this.rig.mode === 'fp' && (playing || this.state === 'pause') ? this.vmScene : null, this.vmCam);
+      const showVM = this.rig.mode === 'fp' && !this.home.showcase && (playing || this.state === 'pause' || this.state === 'home');
+      this.renderer.render(this.world.scene, showVM ? this.vmScene : null, this.vmCam);
     }
     this.overlay.draw();
   }
@@ -309,41 +341,59 @@ export class Game {
     c.position.set(sp.x + Math.cos(t) * 90, 70, sp.z + Math.sin(t) * 90); c.lookAt(sp.x, 30, sp.z);
   }
   updateHero(dt) {
-    const p = this.player, m = this.heroModel; const fp = this.rig.mode === 'fp';
-    m.root.visible = !fp && !!this.world.data && this.state !== 'menu';
+    const p = this.player, m = this.heroModel; const fp = this.rig.mode === 'fp' && !this.home.showcase;
+    m.root.visible = !fp && !!this.world.data && this.state !== 'menu' && !this.world.data.hideHero;
     if (this.rideMesh) { this.rideMesh.position.copy(p.pos); this.rideMesh.rotation.y = Math.atan2(-p.vel.x, -p.vel.z) + Math.PI; this.rideMesh.visible = this.state !== 'menu'; }
     if (!m.root.visible) return;
     m.root.position.copy(p.pos); if (this.rideMesh) m.root.position.y += p.ride === 'bicycle' ? 0.35 : 0.15;
-    // face movement direction when moving fast / swinging, else camera yaw
+    // facing: travel direction while moving fast / airborne, wall-normal while climbing, else camera yaw
     let face = p.yaw + Math.PI;
-    if (p.fsm.is('swing', 'air', 'zip', 'ride') && p.speed > 2) face = Math.atan2(p.vel.x, p.vel.z);
+    if (p.fsm.is('swing', 'air', 'zip', 'ride', 'wallrun') && p.speed > 2) face = Math.atan2(p.vel.x, p.vel.z);
+    else if (p.fsm.is('ground', 'slide') && p.speed > 1.5) face = Math.atan2(p.vel.x, p.vel.z);
     if (p.fsm.is('climb', 'hang')) face = Math.atan2(-p.wallN.x, -p.wallN.z);
-    if (p.fsm.is('wallrun')) face = Math.atan2(p.vel.x, p.vel.z);
-    m.root.rotation.y = face;
-    // crouch scale squash
-    m.root.scale.y = damp(m.root.scale.y, p.fsm.is('slide') ? 0.6 : p.crouch ? 0.72 : 1, 12, dt);
-    animateCharacter(m, p.pose, p.speed, dt);
+    if (this.home.showcase) { const c = this.renderer.camera.position; face = Math.atan2(c.x - p.pos.x, c.z - p.pos.z) + Math.sin(this.time * 0.7) * 0.5; }
+    m.faceY = m.faceY === undefined ? face : dampAngle(m.faceY, face, 14, dt);
+    m.root.rotation.y = m.faceY;
+    const ex = this._heroEx || (this._heroEx = {});
+    ex.hero = true; ex.side = p.swingSide < 0 ? 'L' : 'R'; ex.sp = p.swingPhase; ex.wallSide = p.wallSide; ex.trick = p.trick || p.groundTrick; ex.k = undefined; ex.snap = 16;
+    ex.ropePitch = 0; ex.ropeRoll = 0;
+    if (p.ropeActive) {
+      const fx = Math.sin(m.faceY), fz = Math.cos(m.faceY);
+      const d = _hv.subVectors(p.anchor, p.pos).normalize();
+      ex.ropePitch = clamp(Math.atan2(d.x * fx + d.z * fz, d.y), -1.3, 1.3);
+      ex.ropeRoll = clamp(-Math.atan2(d.x * fz - d.z * fx, d.y), -1.0, 1.0);
+      if (p.fsm.is('zip')) ex.ropePitch = clamp(ex.ropePitch, 0.2, 1.4);
+    }
+    let pose = p.pose;
+    if (p.fsm.is('locked')) { pose = p.lockPose === 'takedown' ? 'takedown' : p.lockPose; ex.k = 1 - p.lockTimer / (p.lockDur || 0.3); ex.snap = 26; }
+    if (p.ride) pose = p.ride === 'bicycle' ? 'bike' : p.ride === 'skates' ? 'skate' : 'ride';
+    if (p.landSquash) { m.anim.landT = 0.25; p.landSquash = false; }
+    animateCharacter(m, pose, p.speed, dt, ex);
   }
   updateViewModel(dt) {
     const vm = this.vm; if (!vm) return; const cam = this.renderer.camera, p = this.player;
-    vm.group.visible = this.rig.mode === 'fp' && this.state !== 'menu';
+    vm.group.visible = this.rig.mode === 'fp' && this.state !== 'menu' && !this.home.showcase;
     if (!vm.group.visible) return;
     // Hands are placed in screen space (NDC) so they sit in the lower corners on any aspect ratio.
     const vc = this.vmCam; vc.aspect = cam.aspect;
     vc.fov = clamp(cam.fov, 50, 100); vc.updateProjectionMatrix();
     const tVc = Math.tan(vc.fov * Math.PI / 360), tH = tVc * cam.aspect;
     vc.rotation.z = this.rig.roll * 0.5;
-    const D = 0.5; const sc = clamp(tH * D / 0.55, 0.42, 1.0); // hand size follows screen WIDTH
+    const D = 0.5; const sc = clamp(tH * D / 0.55, 0.3, 1.0); // hand size follows screen WIDTH
     vm.group.scale.setScalar(sc);
     const t = this.time; const sway = p.fsm.is('ground') ? Math.min(1, p.speed / 7) : 0;
     for (const s of ['L', 'R']) {
       const hnd = vm.hands[s]; const sg = s === 'L' ? -1 : 1;
       vm.kickT[s] = Math.max(0, vm.kickT[s] - dt);
       let nx = sg * 0.6, ny = -0.78 + Math.sin(t * 9 + (s === 'L' ? 0 : Math.PI)) * 0.04 * sway, dz = 0, rx = 0.12;
-      if (p.fsm.is('swing', 'zip') && s === 'R') { nx = 0.42; ny = 0.15; rx = 1.25; }
+      const swingHand = p.swingSide < 0 ? 'L' : 'R';
+      if (p.fsm.is('swing') && s === swingHand) { const port = cam.aspect < 1; nx = sg * (port ? 0.62 : 0.42); ny = port ? -0.05 : 0.18; rx = port ? 0.95 : 1.3; }
+      if (p.fsm.is('zip')) { nx = sg * 0.3; ny = 0.05; rx = 1.2; }
+      if ((p.trick || p.groundTrick) && !p.fsm.is('swing')) { nx = sg * 0.35; ny = -0.5; rx = 0.8; }
       if (p.fsm.is('climb', 'hang')) { nx = sg * 0.45; ny = -0.25 + Math.sin(t * 8 + (s === 'L' ? 0 : 3)) * 0.12 * Math.abs(input.move.y); rx = 1.3; }
-      if (p.fsm.is('locked') && (p.lockPose === 'punch' || p.lockPose === 'takedown') && s === 'R') { nx = 0.12; ny = -0.35; dz = -0.12; rx = 0.0; }
-      if (p.fsm.is('locked') && p.lockPose === 'kick') ny = -1.4;
+      const punchHand = p.lockPose === 'cross' ? 'L' : 'R';
+      if (p.fsm.is('locked') && ['punch', 'jab', 'cross', 'hook', 'uppercut', 'takedown'].includes(p.lockPose) && s === punchHand) { const k = 1 - p.lockTimer / (p.lockDur || 0.3); const ext = k < 0.25 ? -0.3 : k < 0.6 ? 1 : 0.4; nx = sg * 0.12; ny = -0.35 + (p.lockPose === 'uppercut' ? 0.3 * ext : 0); dz = -0.16 * ext; rx = 0.0; }
+      if (p.fsm.is('locked') && (p.lockPose === 'kick' || p.lockPose === 'spinkick')) ny = -1.4;
       if (p.fsm.is('vault')) { ny = -0.95; rx = -0.4; }
       if (p.fsm.is('wallrun') && ((p.wallSide < 0 && s === 'L') || (p.wallSide > 0 && s === 'R'))) { nx = sg * 0.85; ny = -0.2; rx = 0.6; }
       if (p.fsm.is('slide')) { ny = -0.65; nx = sg * 0.7; }
@@ -391,6 +441,25 @@ export class Game {
       } else if (!inside && t._in) t._in = false;
     }
   }
+  // Walking/swinging off a district edge crosses into the neighbouring district (free roam only).
+  checkExits(dt) {
+    const ex = this.world.data && this.world.data.exits; if (!ex || !ex.length || this.travelling) return;
+    const p = this.player.pos; this._exitWarn = Math.max(0, (this._exitWarn || 0) - dt);
+    for (const e of ex) {
+      if (p.x < e.min[0] || p.x > e.max[0] || p.z < e.min[2] || p.z > e.max[2]) continue;
+      if (this.missions.active || !registry.get('cities', e.to)) {
+        // push back toward the district
+        const n = { x0: [1, 0], x1: [-1, 0], z0: [0, 1], z1: [0, -1] }[e.side]; this.player.vel.x = n[0] * 9; this.player.vel.z = n[1] * 9;
+        if (this._exitWarn <= 0) { this._exitWarn = 2; this.hud.toast(this.missions.active ? 'Stay in the area — you\'re on a job!' : 'That way is closed for now.', 1.6); }
+        return;
+      }
+      const opp = { x0: 'x1', x1: 'x0', z0: 'z1', z1: 'z0' }[e.side];
+      const carry = Math.min(14, Math.hypot(this.player.vel.x, this.player.vel.z));
+      this.travelling = true; this.hud.toast('Heading to ' + (e.label || e.to) + '…', 1.4);
+      this.startFreeRoam(e.to, { edge: opp, carry }).finally(() => { this.travelling = false; });
+      return;
+    }
+  }
   closeShutter(sh) {
     // facility slide-door: lowers over ~1.6s, leaving a slide-gap until it shuts
     sh.closing = true;
@@ -410,8 +479,8 @@ export class Game {
   }
   updateHints() {
     const p = this.player, o = this.overlay;
-    o.setHint('cross', p.fsm.is('swing') ? 'SWING-JUMP' : p.fsm.is('climb', 'wallrun') ? 'WALL-JUMP' : p.fsm.is('hang') ? 'CLIMB UP' : 'JUMP');
-    o.setHint('circle', this.combat.dangerT > 0 ? 'DODGE!' : p.fsm.is('hang', 'climb') ? 'DROP' : p.speed > 5.8 && p.fsm.is('ground') ? 'SLIDE' : 'CROUCH');
+    o.setHint('cross', p.fsm.is('swing') ? 'SWING-JUMP' : p.fsm.is('climb', 'wallrun') ? 'WALL-JUMP' : p.fsm.is('hang') ? 'CLIMB UP' : p.fsm.is('air') && p.airTime > 0.1 ? 'TRICK' : p.fsm.is('zip') ? 'LAUNCH' : 'JUMP');
+    o.setHint('circle', this.combat.dangerT > 0 ? 'DODGE!' : p.fsm.is('hang', 'climb') ? 'DROP' : p.fsm.is('air') ? 'DIVE' : p.speed > 5.8 && p.fsm.is('ground') ? 'SLIDE' : 'CROUCH');
     o.setHint('r2', p.abilities.swing ? (p.aimZipPoint ? 'LAUNCH' : 'SWING') : '—');
     o.setHint('l1', 'FREE-RUN'); o.setHint('l2', 'AIM'); o.setHint('r1', p.abilities.gadgets ? 'GADGET' : '—');
     o.setHint('triangle', p.abilities.gadgets ? 'GEAR' : '—');

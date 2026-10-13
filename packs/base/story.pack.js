@@ -132,9 +132,9 @@ TetherMod.register({
         { type: 'defeat', text: 'Free the hostages — beat the Jokers',
           spawn: [
             { npc: 'jester_goon', at: { landmark: 'bridge' }, count: 3, spread: 5, state: 'idle' },
-            { npc: 'jester_gunner', at: { landmark: 'bridge', offset: [0, 0, 20] }, count: 2, spread: 3, state: 'idle' },
+            { npc: 'jester_gunner', at: { landmark: 'bridge', offset: [20, 0, 0] }, count: 2, spread: 3, state: 'idle' },
           ],
-          civilians: [{ npc: 'hostage', at: { landmark: 'bridge', offset: [2, 0, 8] }, count: 3, spread: 2, state: 'cower' }] },
+          civilians: [{ npc: 'hostage', at: { landmark: 'bridge', offset: [8, 0, 1] }, count: 3, spread: 2, state: 'cower' }] },
         { type: 'dialogue', id: 'ch4_bridge' },
         { type: 'collect', count: 3, near: { landmark: 'clocktower' }, radius: 140, color: '#a24bd6', word: 'DEFUSED!', text: 'Defuse the jack-bombs', sub: 'Touch each purple bomb', checkpoint: true },
         { type: 'reach', target: { landmark: 'clocktower', offset: [13, 21.2, 0] }, radius: 8, text: 'Face the Jester at the clock tower', checkpoint: true },
@@ -361,6 +361,13 @@ TetherMod.register({
     sq_frontpage: { lines: [
       { s: 'augie', t: 'You! Menace! I mean — source! The Klaxon needs dramatic skyline shots and my photographer is afraid of heights.' },
       { s: 'augie', t: 'Three spots. Stand there and I\'ll snap you with the long lens. Front page, guaranteed.', choices: [ { t: 'Fine. Make me look good.', result: 'accept' }, { t: 'You called me a menace.', result: 'decline' } ] },
+    ] },
+    home_first: { lines: [
+      { s: 'narrator', t: "Kettle's Row. A fourth-floor walk-up with Okafor's name still taped over the buzzer. The key was under the pigeon. Of course it was." },
+      { s: 'tether', t: 'A workbench… a kitchen… a computer older than me. Well. Older than me is everything.' },
+      { s: 'okafor_tape', t: "Recording five. If you found this place, it's yours now. The bench mixes line fluid and takes upgrades — you'll need parts, so be stylish out there." },
+      { s: 'okafor_tape', t: 'The kitchen works. Eat something. The sewing machine works. Make yourself something that is yours. And the BRASS-64… type HELP. Have fun.' },
+      { s: 'tether', t: '(Stations: ■ at the WORKSTATION, STOVE, FRIDGE, BRASS-64, SEWING table, BED, TV and CLIPPINGS. The window takes me back out.)' },
     ] },
     sq_frontpage_done: { lines: [ { s: 'augie', t: '"MENACE OR MARVEL?" Front page! …I still think you\'re a menace. A photogenic one.' } ] },
   },

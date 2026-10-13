@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <title>TETHER — Book One</title>
-<link rel="stylesheet" href="game/style.css">
+<link rel="stylesheet" href="game/style.css?v=1.1.0">
 </head>
 <body>
 <canvas id="gl"></canvas>
@@ -23,6 +23,9 @@
   <div class="gear"><div id="gadget">LINE</div><div id="ammo">12/12</div></div>
   <canvas id="minimap" width="128" height="128"></canvas>
   <div id="rep">★ 0</div>
+  <div id="buffs"></div>
+  <div id="style"><b>FLIP!</b><span>STYLE 0</span></div>
+  <div id="partspop"></div>
   <div id="crosshair"></div>
   <div id="zipmark"></div>
   <div id="waypoint"><span>0m</span></div>
@@ -45,6 +48,8 @@
   </div>
 </div>
 
+<div id="home"></div>
+<div id="fade"><span>Zzz…</span></div>
 <div id="titlecard"><div class="t-title"></div><div class="t-sub"></div></div>
 <div id="menus"></div>
 <div id="loading">
@@ -73,8 +78,8 @@
 <script>
   // Load every pack listed in packs/packs.manifest.js, in order, then the engine.
   // (Classic <script> tags work from file:// on Android — no server needed.)
-  (window.TETHER_PACKS || []).forEach(function (f) { document.write('<script src="packs/' + f + '"><\/script>'); });
-  document.write('<script src="game/tether.js"><\/script>');
+  (window.TETHER_PACKS || []).forEach(function (f) { document.write('<script src="packs/' + f + '?v=1.1.0"><\/script>'); });
+  document.write('<script src="game/tether.js?v=1.1.0"><\/script>');
 </script>
 </body>
 </html>

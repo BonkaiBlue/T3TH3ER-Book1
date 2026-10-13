@@ -14,6 +14,7 @@ export class HUD {
     this.bossEl = $('bossbar'); this.bossFill = this.bossEl.querySelector('.b-fill'); this.bossName = this.bossEl.querySelector('.b-name');
     this.gadgetEl = $('gadget'); this.ammoEl = $('ammo'); this.fpsEl = $('fps'); this.danger = $('danger'); this.speedEl = $('speedlines');
     this.mini = $('minimap'); this.mctx = this.mini.getContext('2d'); this.miniT = 0; this.cardEl = $('titlecard'); this.repEl = $('rep');
+    this.styleEl = $('style'); this.styleT = 0; this.partsEl = $('partspop'); this.partsT = 0; this.buffEl = $('buffs');
     this.waypoint = null; this.boss = null; this.toastT = 0; this.scanT = 0; this._v = new THREE.Vector3(); this.ghost = 100; this.fpsAcc = 0; this.fpsN = 0;
     bus.on('combat:danger', () => { this.danger.classList.remove('on'); void this.danger.offsetWidth; this.danger.classList.add('on'); });
     bus.on('player:hurt', () => { this.el.classList.remove('hurt'); void this.el.offsetWidth; this.el.classList.add('hurt'); });
@@ -26,6 +27,18 @@ export class HUD {
     this.objT.textContent = title; this.objS.textContent = sub || ''; this.obj.classList.add('show');
   }
   setWaypoint(v) { this.waypoint = v ? v.clone() : null; }
+  stylePop(e) {
+    if (!e) { this.styleEl.classList.remove('show'); this.styleEl.classList.add('bail'); this.styleEl.querySelector('b').textContent = 'BAIL!'; this.styleEl.classList.add('show'); this.styleT = 0.9; return; }
+    this.styleEl.classList.remove('bail');
+    const nice = { frontflip: 'FRONT FLIP', backflip: 'BACKFLIP', corkscrew: 'CORKSCREW', sidespin: 'SIDE SPIN', twist: 'TWISTER', superman: 'SUPERMAN', starfish: 'STARFISH', doubleflip: 'DOUBLE FLIP' }[e.label] || String(e.label).toUpperCase();
+    this.styleEl.querySelector('b').textContent = nice + '!';
+    this.styleEl.querySelector('span').textContent = `STYLE ${e.style}${e.combo > 1 ? '  ×' + e.combo : ''}`;
+    this.styleEl.classList.remove('show'); void this.styleEl.offsetWidth; this.styleEl.classList.add('show'); this.styleT = 1.6;
+  }
+  partsPop(n, why) {
+    this.partsEl.textContent = `+${n} ⚙${why ? '  ' + why : ''}`; this.partsEl.classList.remove('show'); void this.partsEl.offsetWidth; this.partsEl.classList.add('show'); this.partsT = 1.8;
+    this._rep = null;
+  }
   toast(msg, t = 2.2) { this.toastEl.textContent = msg; this.toastEl.classList.add('show'); this.toastT = t; }
   scanner(msg) { this.scannerEl.querySelector('span').textContent = msg; this.scannerEl.classList.add('show'); this.scanT = 4.5; }
   showBoss(name, boss) { this.boss = boss; this.bossEl.classList.toggle('show', !!boss); if (boss) this.bossName.textContent = name; }
@@ -44,7 +57,7 @@ export class HUD {
     // gadget
     const gd = g.combat.gadget;
     const gtxt = gd ? gd.name : '—'; if (this._gtxt !== gtxt) { this._gtxt = gtxt; this.gadgetEl.textContent = gtxt; this.gadgetEl.style.borderColor = gd ? gd.color : '#fff'; }
-    const at = `${g.combat.ammo}/${g.combat.maxAmmo}`; if (this._at !== at) { this._at = at; this.ammoEl.textContent = at; }
+    const at = `${g.combat.ammo}/${g.combat.maxAmmo} · 🧪${Math.round(g.save.data.fluid || 0)}`; if (this._at !== at) { this._at = at; this.ammoEl.textContent = at; this.ammoEl.classList.toggle('low', (g.save.data.fluid || 0) < 6 && g.combat.ammo < 3); }
     this.gadgetEl.parentElement.style.display = p.abilities.gadgets === false ? 'none' : '';
     // crosshair: bigger when aiming
     this.cross.classList.toggle('aim', g.combat.aiming || !!p.aimZipPoint);
@@ -73,7 +86,12 @@ export class HUD {
       if (this.fpsAcc > 0.5) { this.fpsEl.textContent = `${Math.round(this.fpsN / this.fpsAcc)} fps · ${g.renderer.info.calls} calls · ${(g.renderer.scale * 100) | 0}%`; this.fpsAcc = 0; this.fpsN = 0; }
       this.fpsEl.style.display = 'block';
     } else this.fpsEl.style.display = 'none';
-    const rep = g.save.data.reputation; if (this._rep !== rep) { this._rep = rep; this.repEl.textContent = '★ ' + rep; }
+    const rep = g.save.data.reputation + '|' + g.save.data.parts; if (this._rep !== rep) { this._rep = rep; this.repEl.textContent = `★ ${g.save.data.reputation} · ⚙ ${g.save.data.parts || 0}`; }
+    if (this.styleT > 0) { this.styleT -= dt; if (this.styleT <= 0) this.styleEl.classList.remove('show'); }
+    if (this.partsT > 0) { this.partsT -= dt; if (this.partsT <= 0) this.partsEl.classList.remove('show'); }
+    this._buffT = (this._buffT || 0) - dt; if (this._buffT <= 0) { this._buffT = 1; const bi = g.home.buffIcons(); if (bi !== this._bi) { this._bi = bi; this.buffEl.innerHTML = bi; } }
+    // home beacon on the minimap / waypoint when no objective
+    if (!this.waypoint && g.activities.homeBeacon && g.freeRoam && !g.activities.crime) this._homeWp = g.activities.homeBeacon; else this._homeWp = null;
   }
   project(v3, el, W, H, clampEdge) {
     const v = this._v.copy(v3).project(this.game.renderer.camera);
@@ -105,6 +123,8 @@ export class HUD {
     // npcs
     for (const n of g.npcs.list) { if (!n.alive) continue; c.fillStyle = n.hostile ? (n.downed ? '#777' : '#ff3b3b') : n.talk ? '#5fd0ff' : '#f2ead0'; c.beginPath(); c.arc(n.pos.x, n.pos.z, 3.5 / sc * 0.5, 0, 6.283); c.fill(); }
     if (this.waypoint) { c.fillStyle = '#ffe066'; c.beginPath(); c.arc(this.waypoint.x, this.waypoint.z, 5 / sc * 0.6, 0, 6.283); c.fill(); }
+    const hb = g.activities.homeBeacon; if (hb) { c.fillStyle = '#2a9d9a'; c.strokeStyle = '#f2c14e'; c.lineWidth = 2 / sc; const r = 6 / sc; c.fillRect(hb.x - r, hb.z - r, r * 2, r * 2); c.strokeRect(hb.x - r, hb.z - r, r * 2, r * 2); }
+    for (const cch of g.activities.caches) if (cch.m.visible) { c.fillStyle = '#5fe0c8'; c.beginPath(); c.arc(cch.pos.x, cch.pos.z, 3 / sc, 0, 6.283); c.fill(); }
     c.restore();
     // player arrow
     c.save(); c.translate(S / 2, S / 2); c.fillStyle = '#ff2fb3'; c.strokeStyle = '#1d1712'; c.lineWidth = 2;

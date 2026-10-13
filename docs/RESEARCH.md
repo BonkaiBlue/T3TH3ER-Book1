@@ -53,3 +53,9 @@ keeps memory bounded on phones instead of streaming one giant world.
 I deliberately did **not** copy code or assets from decompilations or recompilations of commercial games (Spider-Man,
 Assassin's Creed, Hitman, RCT etc. are all still under copyright); everything here is original code built on documented
 techniques and MIT-licensed three.js. Fonts are SIL-OFL (Bangers, Bebas Neue). All sounds are synthesized at runtime.
+
+## v1.1 additions
+- **One-draw-call characters:** each character is a single `SkinnedMesh` with 16 rigidly-weighted joints (the PS1/PS2 "segmented body" trick) instead of separate meshes per limb — better poses (elbows, knees, feet) for fewer draw calls. Poses are procedural functions blended with exponential smoothing; flips rotate a pivot at the centre of mass.
+- **Rope:** a 12-segment crossed-ribbon line rebuilt each frame in one buffer — it travels out from the hand (~80 ms), wobbles on impact with a decaying wave and sags when slack.
+- **Seamless-feeling districts without a monolithic world:** each district still loads on its own (memory stays bounded on phones), but its land edges are lined with a real, collidable strip of the neighbouring skyline, and crossing the edge loads the neighbour at the matching edge, keeping your momentum.
+- **BASIC interpreter:** time-sliced (a few thousand statements per frame) so BRASS-64 programs run inside the game loop; `WAIT` counts frames, `KEY`/`INKEY$` read a small key buffer fed by the on-screen pad, a hardware keyboard or Android's soft keyboard.

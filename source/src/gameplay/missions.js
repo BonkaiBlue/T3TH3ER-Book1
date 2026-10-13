@@ -61,7 +61,7 @@ export class MissionRunner {
     if (this.step.checkpoint) { const g = this.game; const at = this.step.at ? this.loc(this.step.at) : g.player.pos.clone(); g.checkpoint = { pos: at, yaw: g.player.yaw }; }
   }
   on(ev, fn) { this.offs.push(bus.on(ev, fn)); }
-  done() { if (this.ctx && !this.ctx.done) { this.ctx.done = true; this.game.audio.play('ui_ok'); setTimeout(() => { if (this.active) this.next(); }, this.step.delay ?? 350); } }
+  done() { const ctx = this.ctx; if (ctx && !ctx.done) { ctx.done = true; this.game.audio.play('ui_ok'); setTimeout(() => { if (this.active && this.ctx === ctx) this.next(); }, this.step.delay ?? 350); } }
   complete() {
     const def = this.active; const g = this.game;
     this.cleanupSpawns(); this.game.fx.setBeacon(null); g.hud.setObjective(null);
@@ -101,7 +101,7 @@ const near = (a, b, r) => a.distanceTo(b) < r;
 
 export const STEP_TYPES = {
   dialogue: {
-    start(s, c) { this.game.dialogue.play(s.id, () => this.done()); },
+    start(s, c) { this.game.dialogue.play(s.id, () => { if (this.ctx === c) this.done(); }); },
   },
   thought: { start(s, c) { this.game.dialogue.thought(s.text, s.time); c.wait = s.time || 3.5; }, update(s, c) { if (c.t > c.wait) this.done(); } },
   wait: { update(s, c) { if (c.t > (s.time || 1)) this.done(); } },
@@ -174,7 +174,7 @@ export const STEP_TYPES = {
       if (!n && s.spawn) n = this.spawnGroup([{ ...s.spawn, id: s.npc }])[0];
       if (!n) { this.done(); return; }
       n.talk = s.dialogue; n.setIcon('talk'); c.npc = n;
-      this.on('npc:talk', (e) => { if (e.npc === n) { this.game.dialogue.play(s.dialogue, () => this.done(), n); } });
+      this.on('npc:talk', (e) => { if (e.npc === n) { this.game.dialogue.play(s.dialogue, () => { if (this.ctx === c) this.done(); }, n); } });
     },
     update(s, c) { if (c.npc) c.target = c.npc.pos.clone().setY(c.npc.pos.y + 2.2); },
     end(s, c) { if (c.npc) { c.npc.talk = s.after || null; c.npc.setIcon(s.after ? 'talk' : null); } },
@@ -182,7 +182,7 @@ export const STEP_TYPES = {
   interact: {
     start(s, c) {
       c.target = this.loc(s.target);
-      const it = this.game.combat.addInteractable({ pos: c.target, label: s.label || 'USE', radius: s.radius || 2.4, onUse: () => { this.game.combat.removeInteractable(it); if (s.dialogue) this.game.dialogue.play(s.dialogue, () => this.done()); else this.done(); } });
+      const it = this.game.combat.addInteractable({ pos: c.target, label: s.label || 'USE', radius: s.radius || 2.4, onUse: () => { this.game.combat.removeInteractable(it); if (s.dialogue) this.game.dialogue.play(s.dialogue, () => { if (this.ctx === c) this.done(); }); else this.done(); } });
       this.items = this.items || []; this.items.push(it);
     },
   },
@@ -207,6 +207,7 @@ export const STEP_TYPES = {
     start(s, c) {
       const g = this.game; c.arena = this.loc(s.arena);
       c.boss = g.spawnBoss(s.id, c.arena);
+      if (s.arena && s.arena.landmark) { const lp = this.loc({ landmark: s.arena.landmark }); const aw = c.arena.clone().sub(lp).setY(0); if (aw.lengthSq() > 1) c.boss.away = aw.normalize(); }
       this.on('boss:defeated', () => { c.won = true; setTimeout(() => this.done(), 1600); });
       this.on('boss:summon', (e) => { const n = this.spawnGroup([{ npc: 'jester_goon', at: c.arena, count: e.count, spread: 5, state: 'combat' }]); for (const x of n) { x.aware = true; } });
       g.hud.showBoss(s.name || 'BOSS', c.boss);

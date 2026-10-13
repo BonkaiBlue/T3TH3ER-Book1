@@ -39,13 +39,23 @@ Then add `'mods/my-pack.js'` to `packs/packs.manifest.js`. Done.
 | `chapters` | `order, number, title, city, palette, spawn, spawnYaw, forceSkin, abilities, requires, next, blurb, outroText, reward, steps:[…]` |
 | `dialogues` | `{ id: { lines: [ … ] } }` (see below) |
 | `speakers` | `{ id: { name, color, pitch, radio, portrait:{…} } }` |
+| `upgrades` | `name, desc, icon, costs:[⚙ per level], stat: swingPower|zipRange|armor|maxHealth|fluidCap|mag|sense, per` or `gadget` (unlocks a gadget id) |
+| `suitMods` | `name, desc, cost, armor, swing, quiet, mag` (Sewing Station, one per suit) |
+| `recipes` | `name, desc, color, steps:[chop|flip|stir|heat], buff:{type: regen|armor|swing|quiet|maxhp, amount, time(s)}` |
+| `news` | `text` + one of `any:true`, `requires:'flag'`, `minRep:n` (TV headlines) |
+| `mapArt` | `{ land:[[[x%,y%]…]…], lines:[…], labels:[{text, at, rot, water}], home:'cityId' }` (world map drawing) |
 | `strings` | UI text overrides (`gameTitle`, `heroName`, `credits`, …) |
 | `tips` | loading-screen tips (array of strings) |
 | `hooks` | `onBoot(game)`, `onCityLoaded(game, city)` |
 
+### City layout fields (v1.1)
+`edges: { x0|x1|z0|z1: 'water' | { to: 'cityId', label } }` — land edges show the neighbour's skyline and let players cross over (spawning on the matching edge of the destination).
+`megaPark: [i0, j0, i1, j1]` — merge a block range into one big park with lakes. `statue: { pos:[x,z], name }` — harbour statue. `bridge: { side:'x1', length, name }`.
+`subway` (chance per block of a fast-travel stair), `steam` (vent chance), `lanternStrings: true`, `caches` (supply caches), `traffic`, `peds`, `parks`, `plazas`.
+
 ### City styles & landmarks
-Building styles: `deco, brick, glass, office, brownstone, warehouse`.
-Landmark types: `clocktower, rooftopGarden, bank, pawnshop, gallery, museum, warehouseYard, docks, tower, park`.
+Building styles: `deco, brick, glass, office, brownstone, warehouse, tenement, lantern, nightglass, stone, brickdark` (brick-ish styles grow fire escapes).
+Landmark types: `clocktower, rooftopGarden, bank, pawnshop, gallery, museum, warehouseYard, docks, tower (+style, tiers), park, exchange, theater, gate, diner, church, home` (`home` = the apartment entrance hatch).
 Each landmark gets a `pos` and usually `top` (roof) or `door` (street) you can target from steps:
 `{ landmark: 'clocktower', key: 'top', offset: [x, y, z], ground: true }`.
 Facility (`kind: 'facility'`) segments: `pod_room, corridor, pipes_crouch, debris_vault, climb_shaft, gap_wallrun, ledge_grab, slide_door, exit_hall, exit_yard` — each gets `start` / `end` keys.
@@ -95,6 +105,8 @@ dialogues: {
 `s` = speaker id, `t` = text, `go` = jump to line `id`, `set` = save flags, `result` = value passed to the
 caller (side-job givers start the job unless the result is `'decline'`), `emit` = bus event, `sfx` = sound.
 
+Skin palette extras (hero style): `gloves, boots, pattern: sides|stripes|lattice|chevron|split|none, emblem: knot|tether|star|bolt|eye|none, lens: classic|big|round|slit, crest:false, goggles, scarf:'#hex', shoulders, mod:'suitModId'`.
+
 Portrait styles: `face, mask, jester, helmet, kid` + options `skin, hair, long, glasses, hat, hatColor, mask, mustache, iron, smile, stern, static, primary, collar, accent, emblem, bg`.
 
 ## Sounds
@@ -106,6 +118,6 @@ hooks: { onBoot(game) { game.audio.addRecipe('honk', { dur: 0.4, build(ctx, out)
 ```
 
 ## Events (`TetherMod.bus.on(name, fn)`)
-`player:thwip, player:jump, player:land, player:vault, player:wallrun, player:climb, player:zip, player:ride, player:hurt, player:dead,
+`player:thwip, player:trick, player:style, player:perfect, player:stylecash, home:station, player:jump, player:land, player:vault, player:wallrun, player:climb, player:zip, player:ride, player:hurt, player:dead,
 npc:alert, npc:suspicious, npc:defeated, npc:takedown, npc:talk, boss:hit, boss:defeated, mission:start, mission:complete,
 crime:stopped, collectible, city:loaded, dialogue:start, dialogue:end, skin:changed, camera:mode`.

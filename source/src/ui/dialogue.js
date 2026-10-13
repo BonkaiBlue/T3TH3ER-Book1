@@ -121,6 +121,7 @@ export class Dialogue {
     const c = this.capQueue.shift(); if (!c) return;
     this.capEl.textContent = c.text; this.capEl.classList.add('show'); this.capT = c.time;
   }
+  clearCaptions() { this.capQueue.length = 0; this.capT = 0; this.capEl.classList.remove('show'); }
   bark(text, time = 3) { this.barkEl.textContent = this.format(text); this.barkEl.classList.add('show'); this.barkT = time; }
 }
 

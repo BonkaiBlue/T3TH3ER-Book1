@@ -9,7 +9,7 @@ TetherMod.register({
     { id: 'peach', sun: '#fff0d8', sky: '#ffb08a', ground: '#6a4a4a', fog: '#f0a080', skyTop: '#e07a7a', skyMid: '#ffb08a', sunDisc: '#fff0a0', cloud: '#ffd0b0', fogNear: 70, fogFar: 260, sunDir: [0.6, 0.3, -0.5] },
   ],
   cities: [
-    { id: 'pier', name: 'Sunset Pier', short: 'PIER', kind: 'city', seed: 1957, palette: 'peach', color: '#ff6a8a', map: [82, 74],
+    { id: 'pier', name: 'Sunset Pier', short: 'PIER', kind: 'city', seed: 1957, palette: 'peach', color: '#ff6a8a', map: [88, 90],
       blocks: [5, 4], blockSize: 40, street: 14, heights: { min: 8, max: 46, centerBias: 0.9 },
       styles: [['brownstone', 3], ['brick', 2], ['deco', 1]], parks: 0.15, plazas: 0.2, traffic: 8, peds: 30,
       landmarks: [{ id: 'arcade', type: 'gallery', block: [2, 1], name: 'Fun-O-Rama Arcade' }],
