@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#e3ad4f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<title>TETHER — Book One</title>
+<link rel="stylesheet" href="game/style.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ctrl"></canvas>
+<div id="fx"></div>
+
+<div id="hud">
+  <div id="danger"></div>
+  <div id="speedlines"></div>
+  <div id="hpbar"><div id="hp-ghost"></div><div id="hp-fill"></div><i>TETHER</i></div>
+  <div id="objective"><div class="o-title"></div><div class="o-sub"></div></div>
+  <div class="gear"><div id="gadget">LINE</div><div id="ammo">12/12</div></div>
+  <canvas id="minimap" width="128" height="128"></canvas>
+  <div id="rep">★ 0</div>
+  <div id="crosshair"></div>
+  <div id="zipmark"></div>
+  <div id="waypoint"><span>0m</span></div>
+  <div id="toast"></div>
+  <div id="scanner"><b>POLICE SCANNER</b><span></span></div>
+  <div id="bossbar"><div class="b-name">BOSS</div><div class="b-track"><div class="b-fill"></div></div></div>
+  <div id="fps"></div>
+</div>
+
+<div id="caption"></div>
+<div id="bark"></div>
+
+<div id="dialogue">
+  <canvas width="160" height="160"></canvas>
+  <div class="d-body">
+    <div class="d-name">NAME</div>
+    <div class="d-text"></div>
+    <div class="d-choices"></div>
+    <div class="d-more">▼ TAP</div>
+  </div>
+</div>
+
+<div id="titlecard"><div class="t-title"></div><div class="t-sub"></div></div>
+<div id="menus"></div>
+<div id="loading">
+  <div class="ld-panel">
+    <canvas width="160" height="160"></canvas>
+    <div class="ld-right">
+      <div class="ld-head">NOW ENTERING</div>
+      <div class="ld-city"></div>
+      <div class="ld-tipbox"><b>TIP</b> <span class="ld-tip"></span></div>
+      <div class="ld-bar"><div class="ld-fill"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="bootsplash">
+  <div class="bs-logo">TETHER</div>
+  <div class="bs-sub">BOOK ONE</div>
+  <div id="bootmsg">Loading…</div>
+  <div class="bs-tap">TAP TO START</div>
+  <div class="bs-rot">Works in portrait &amp; landscape · Gamepad &amp; keyboard supported</div>
+</div>
+
+<!-- Mod API queue: packs register before the engine boots -->
+<script>window.TetherMod = { _queue: [], register: function (p) { this._queue.push(p); } };</script>
+<script src="packs/packs.manifest.js"></script>
+<script>
+  // Load every pack listed in packs/packs.manifest.js, in order, then the engine.
+  // (Classic <script> tags work from file:// on Android — no server needed.)
+  (window.TETHER_PACKS || []).forEach(function (f) { document.write('<script src="packs/' + f + '"><\/script>'); });
+  document.write('<script src="game/tether.js"><\/script>');
+</script>
+</body>
+</html>
